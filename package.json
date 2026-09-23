@@ -1,0 +1,12 @@
+{
+  "name": "control-arm",
+  "version": "0.1.0",
+  "description": "Does a test actually fail on the code it was written to catch?",
+  "type": "module",
+  "bin": { "ca": "./bin/ca.mjs" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "fixtures": "node fixtures/build.mjs"
+  },
+  "license": "MIT"
+}
