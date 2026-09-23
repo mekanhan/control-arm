@@ -13,6 +13,9 @@ import { git, removeWorktrees } from '../src/worktree.mjs';
 import { verifyCommit, commitInfo } from '../src/verify.mjs';
 import { CAUGHT, BLIND, INCONCLUSIVE, FLAKY, SKIPPED } from '../src/verdict.mjs';
 import { renderVerify, renderAudit, MARK } from '../src/report.mjs';
+import { renderHtml, issueBody } from '../src/html-report.mjs';
+import { prComment } from '../src/markdown-report.mjs';
+import { analyseCase, extractCase } from '../src/assertions.mjs';
 
 const argv = process.argv.slice(2);
 const cmd = argv[0];
@@ -71,7 +74,8 @@ async function verify() {
     const r = await verifyCommit({ repo, workDir, sha, against: flag('against'), runs, timeoutMs: Number(flag('timeout', 120_000)),
         onStep: s => process.stderr.write(`\r  … ${s}      `) });
     process.stderr.write('\r' + ' '.repeat(40) + '\r');
-    console.log(renderVerify(r));
+    if (has('pr-comment')) console.log(prComment(r, { repoName: flag('repo', '.') }));
+    else console.log(renderVerify(r));
     if (!has('keep')) await removeWorktrees(repo, workDir);
     process.exit(r.verdict === BLIND ? 1 : 0);
 }
@@ -128,6 +132,30 @@ async function audit() {
 
     console.log(renderAudit(results, { since, n: sample.length, eligible: eligible.length, matched: candidates.length, seed, seconds: (Date.now() - t0) / 1000 }));
 
+    const htmlOut = flag('html');
+    if (htmlOut) {
+        const blind = results.filter(r => r.verdict === BLIND || r.stillOpen);
+        const answerable = results.filter(r => r.verdict === CAUGHT || r.verdict === BLIND).length;
+        const caught = results.filter(r => r.verdict === CAUGHT).length;
+        let slug = 'OWNER/REPO';
+        try {
+            const url = (await git(repo, ['remote', 'get-url', 'origin'])).trim();
+            const m = url.match(/github\.com[:/]([^/]+\/[^/.]+)/); if (m) slug = m[1];
+        } catch { /* no remote: the links still render, pointed at a placeholder */ }
+        const html = renderHtml({
+            repoSlug: slug, repoName: repo,
+            findings: blind.map(r => ({ sha: r.sha, date: r.date, subject: r.subject, verdict: r.verdict,
+                stillOpen: r.stillOpen?.status?.toUpperCase(),
+                cases: r.cases.filter(c => c.verdict !== 'SKIPPED').map(c => ({ verdict: c.verdict, name: c.name, why: c.why })) })),
+            meta: { repo: path.basename(repo), n: sample.length, seed, when: new Date().toISOString().slice(0, 10),
+                caught, blind: results.filter(r => r.verdict === BLIND).length,
+                inconclusive: results.filter(r => r.verdict === INCONCLUSIVE).length,
+                pct: answerable ? ((caught / answerable) * 100).toFixed(1) : '—' },
+        });
+        await writeFile(path.resolve(htmlOut), html);
+        console.log(`  HTML report: ${path.resolve(htmlOut)}\n`);
+    }
+
     const out = flag('out');
     if (out) {
         const esc = v => `"${String(v ?? '').replace(/"/g, '""').replace(/\s+/g, ' ').slice(0, 400)}"`;
@@ -142,7 +170,35 @@ async function audit() {
     if (!has('keep')) await removeWorktrees(repo, workDir);
 }
 
-const table = { doctor, verify, audit };
+async function issues() {
+    const sha = argv[1];
+    if (!sha || sha.startsWith('--')) die('usage: ca issues <commit> [--apply]');
+    const r = await verifyCommit({ repo, workDir, sha, against: flag('against'), timeoutMs: Number(flag('timeout', 120_000)) });
+    if (r.verdict !== BLIND) {
+        console.log(`\n  ${r.short} is ${r.verdict}, not BLIND — nothing to file.\n`);
+        if (!has('keep')) await removeWorktrees(repo, workDir);
+        return;
+    }
+    const title = `test gap: ${r.subject.slice(0, 70)}`;
+    const body = issueBody({ ...r, stillOpen: r.stillOpen?.status?.toUpperCase() }, repo);
+    if (!has('apply')) {
+        // Default is a DRY RUN. Filing an issue is outward-facing and irreversible enough
+        // that it should never be the thing that happens when someone tries the command.
+        console.log(`\n  DRY RUN — would file:\n\n  title: ${title}\n`);
+        console.log(body.split('\n').map(l => '  | ' + l).join('\n'));
+        console.log(`\n  Re-run with --apply to file it.\n`);
+    } else {
+        const { execFile } = await import('node:child_process');
+        const { promisify } = await import('node:util');
+        const { stdout } = await promisify(execFile)('gh',
+            ['issue', 'create', '--repo', repo, '--title', title, '--body', body, '--label', 'test-gap'],
+            { cwd: repo });
+        console.log(`  filed: ${stdout.trim()}`);
+    }
+    if (!has('keep')) await removeWorktrees(repo, workDir);
+}
+
+const table = { doctor, verify, audit, issues };
 if (!table[cmd]) {
     console.log(`
   ca — does a test actually fail on the code it was written to catch?

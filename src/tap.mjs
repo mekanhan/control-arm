@@ -16,6 +16,11 @@ export function parseTap(stdout) {
     const lines = stdout.split('\n');
     const cases = [];
     let current = null;
+    // TAP folds a multi-line error into a `|-` block of indented lines. We used to record
+    // the literal string '<multiline>' for those, which threw away the actual assertion
+    // message — and the assertion message is the single most useful thing in the output.
+    // It surfaced as "<multiline>" in PR comments where the real text belonged.
+    let collecting = null;
 
     for (const line of lines) {
         const ok = line.match(OK);
@@ -29,14 +34,40 @@ export function parseTap(stdout) {
             cases.push(current);
             continue;
         }
+        if (collecting !== null) {
+            // Indented continuation lines belong to the block; anything at or above the
+            // opening indent ends it.
+            const indent = line.match(/^\s*/)[0].length;
+            if (line.trim() && indent > collecting.indent) {
+                if (!collecting.done) {
+                    const t = line.trim();
+                    if (t) { collecting.target.message = t.slice(0, 220); collecting.done = true; }
+                }
+                continue;
+            }
+            collecting = null;
+        }
         if (!current || current.status !== 'fail') continue;
         // Flat scalars inside the YAML block. Deliberately not a YAML parser: we want four
         // fields and a malformed block must degrade to "unknown", which reads INCONCLUSIVE.
         let m;
         if ((m = line.match(/^\s*code:\s*'?([^'\n]+)'?\s*$/))) current.code = m[1].trim();
         else if ((m = line.match(/^\s*name:\s*'?([^'\n]+)'?\s*$/))) current.errorName = m[1].trim();
+        // `expected:` and `actual:` are the ONLY fields that say WHAT the disagreement
+        // was. "Expected values to be strictly equal:" is a category, not a finding — the
+        // reader wants "expected 'Rebuilt', got 'Salvage'", and only these two carry it.
+        else if ((m = line.match(/^\s*expected:\s*(.+?)\s*$/))) current.expected = m[1];
+        else if ((m = line.match(/^\s*actual:\s*(.+?)\s*$/))) current.actual = m[1];
         else if ((m = line.match(/^\s*error:\s*'([^']*)'\s*$/))) current.message = m[1].trim();
-        else if ((m = line.match(/^\s*error:\s*\|-\s*$/))) current.message = '<multiline>';
+        else if ((m = line.match(/^(\s*)error:\s*\|-\s*$/))) {
+            collecting = { indent: m[1].length, target: current, done: false };
+        }
+    }
+    for (const c of cases) {
+        if (c.expected !== undefined && c.actual !== undefined) {
+            c.message = `expected ${c.expected}, got ${c.actual}`;
+        }
+        delete c.expected; delete c.actual;
     }
     return cases;
 }
