@@ -41,6 +41,11 @@ export function renderVerify(r) {
         L.push('');
     }
     const n = v => r.cases.filter(c => c.verdict === v).length;
+    if (r.stillOpen) {
+        const m = { repaired: '↻ REPAIRED SINCE', open: '‼ STILL OPEN TODAY', unknown: '? cannot tell' }[r.stillOpen.status];
+        L.push(`  ${m} — ${r.stillOpen.reason}`);
+        L.push('');
+    }
     L.push(`  VERDICT  ${r.verdict}   ·  ${n(CAUGHT)} discriminating, ${n(NON_DISCRIMINATING)} non-discriminating (guards look like this too), ${n(FLAKY)} flaky, ${n(INCONCLUSIVE)} inconclusive`);
     L.push('');
     return L.join('\n');

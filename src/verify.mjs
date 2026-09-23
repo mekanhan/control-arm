@@ -17,7 +17,7 @@ import { vitest, jest } from './runner-json.mjs';
 import { selectRunner } from './select-runner.mjs';
 
 const RUNNERS = { node: nodeTest, vitest, jest };
-import { classify, reduceRuns, rollUp, SKIPPED, INCONCLUSIVE } from './verdict.mjs';
+import { classify, reduceRuns, rollUp, isDisagreement, BLIND, SKIPPED, INCONCLUSIVE } from './verdict.mjs';
 
 const TEST_RE = /(^|\/)(tests?|__tests__|spec)\/.*\.(test|spec)\.(m?[jt]sx?)$|\.(test|spec)\.(m?[jt]sx?)$/;
 
@@ -61,7 +61,7 @@ export async function verifyCommit({ repo, workDir, sha, runs = 1, timeoutMs = 1
         const opts = { relTestPath: rel, pkgDir, timeoutMs };
 
         const a = await runner.execute({ worktreeDir: fixDir, ...opts });
-        if (!a.ok) { perFile.push({ file: rel, runner: flavour, skip: `arm A did not run (${flavour}): ${a.loadFailure}` }); continue; }
+        if (!a.ok) { perFile.push({ file: rel, runner: flavour, pkgDir, skip: `arm A did not run (${flavour}): ${a.loadFailure}` }); continue; }
 
         const dest = await transplant(repo, sha, rel, parentDir);
         const identity = await proveIdentity({ worktreeRoot: parentDir, repoRoot: repo, testFilePath: dest });
@@ -71,7 +71,7 @@ export async function verifyCommit({ repo, workDir, sha, runs = 1, timeoutMs = 1
             const b = await runner.execute({ worktreeDir: parentDir, ...opts });
             runsOut.push({ b, identity });
         }
-        perFile.push({ file: rel, runner: flavour, armA: a, runs: runsOut, identity });
+        perFile.push({ file: rel, runner: flavour, pkgDir, armA: a, runs: runsOut, identity });
     }
 
     // --- verdicts ----------------------------------------------------------------------
@@ -88,5 +88,51 @@ export async function verifyCommit({ repo, workDir, sha, runs = 1, timeoutMs = 1
         }
     }
     result.verdict = rollUp(result.cases);
+
+    // --- ARM C: is this BLIND finding still open? ---------------------------------------
+    if (result.verdict === BLIND) {
+        result.stillOpen = await armC({ repo, parentDir, perFile, timeoutMs });
+    }
     return result;
+}
+
+/**
+ * ARM C — the current test against the historical bug.
+ *
+ * WHY THIS EXISTS, and it is the most important caveat in the tool.
+ *
+ * Arms A and B answer "did the test SHIPPED WITH THIS COMMIT catch its own bug". That is a
+ * fact about the past and it stays true forever. It does NOT mean there is a gap today:
+ * the repo may have repaired it since, and a BLIND verdict reported as an open defect is a
+ * redundant ticket handed to a colleague.
+ *
+ * Earned 2026-09-23, by doing exactly that. auctionmate c9e46fcb shipped METER-024 with a
+ * `d += 3` loop that stepped over 2026-09-06 — the date its own comment named — so it
+ * could not fail on the code it was written for. True, and I recommended the one-character
+ * fix to a peer about to open a PR. The stride had been `d += 1` since 2026-07-30
+ * (45c4ffcc), changed because MUTATION TESTING deleted the loop body and nothing failed.
+ * Stryker had found the same defect three months earlier, from the opposite direction.
+ *
+ * So: take the CURRENT version of the test file, put it on the parent's broken code, and
+ * run it. If it fails now, the gap was repaired and the finding is history, not a ticket.
+ */
+async function armC({ repo, parentDir, perFile, timeoutMs }) {
+    const files = perFile.filter(f => !f.skip);
+    if (files.length === 0) return { status: 'unknown', reason: 'no runnable test file' };
+
+    for (const f of files) {
+        let dest;
+        try { dest = await transplant(repo, 'HEAD', f.file, parentDir); }
+        catch { return { status: 'unknown', reason: `${f.file} does not exist at HEAD (renamed or deleted)` }; }
+
+        const runner = RUNNERS[f.runner] || nodeTest;
+        const r = await runner.execute({ worktreeDir: parentDir, relTestPath: f.file, pkgDir: f.pkgDir, timeoutMs });
+        if (!r.ok) return { status: 'unknown', reason: `current test could not run on the parent: ${r.loadFailure}` };
+
+        const killer = r.cases.find(c => isDisagreement(c));
+        if (killer) {
+            return { status: 'repaired', reason: `the CURRENT "${killer.name}" fails on this bug — the gap was closed after this commit`, by: killer.name, file: f.file };
+        }
+    }
+    return { status: 'open', reason: 'even the CURRENT tests are green on this bug — still unguarded today' };
 }
