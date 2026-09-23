@@ -68,7 +68,7 @@ async function verify() {
     const sha = argv[1];
     if (!sha || sha.startsWith('--')) die('usage: ca verify <commit>');
     const runs = Number(flag('runs', 1));
-    const r = await verifyCommit({ repo, workDir, sha, runs, timeoutMs: Number(flag('timeout', 120_000)),
+    const r = await verifyCommit({ repo, workDir, sha, against: flag('against'), runs, timeoutMs: Number(flag('timeout', 120_000)),
         onStep: s => process.stderr.write(`\r  … ${s}      `) });
     process.stderr.write('\r' + ' '.repeat(40) + '\r');
     console.log(renderVerify(r));

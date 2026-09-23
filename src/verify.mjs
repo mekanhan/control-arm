@@ -40,10 +40,14 @@ const DOC_RE = /\.(md|mdx|txt|rst|adoc)$/i;
 
 const TEST_RE = /(^|\/)(tests?|__tests__|spec)\/.*\.(test|spec)\.(m?[jt]sx?)$|\.(test|spec)\.(m?[jt]sx?)$/;
 
-export async function commitInfo(repo, sha) {
+export async function commitInfo(repo, sha, against = null) {
     const out = await git(repo, ['show', '--no-patch', '--format=%H%n%s%n%ad', '--date=short', sha]);
     const [full, subject, date] = out.trim().split('\n');
-    const files = (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean);
+    // With a base, the changed set is the WHOLE branch, not just the tip commit — a PR's
+    // test may have arrived in commit 1 and its source change in commit 3.
+    const files = against
+        ? (await git(repo, ['diff', '--name-only', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`])).trim().split('\n').filter(Boolean)
+        : (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean);
     return {
         sha: full, short: full.slice(0, 8), subject, date,
         files,
@@ -52,14 +56,29 @@ export async function commitInfo(repo, sha) {
     };
 }
 
-export async function verifyCommit({ repo, workDir, sha, runs = 1, timeoutMs = 120_000, onStep = () => {} }) {
-    const info = await commitInfo(repo, sha);
+/**
+ * `against` turns this from a commit check into a PR check, and the distinction matters.
+ *
+ * By default the "broken" side is the commit's own parent — right for auditing history,
+ * where each fix is judged against the bug it fixed.
+ *
+ * A PR is different. auctionmate #2519 landed a follow-up commit 6d31f12e whose parent,
+ * 300d719c, ALREADY contains the wiring — so commit-vs-parent compares the branch to
+ * itself and every case reads non-discriminating. The question a PR gate actually asks is
+ * "does this test fail WITHOUT THIS BRANCH", so the base is the MERGE BASE of the branch
+ * and its target, never the target's tip: develop moves, and diffing against a moved tip
+ * drags in everyone else's changes and attributes them here.
+ */
+export async function verifyCommit({ repo, workDir, sha, against = null, runs = 1, timeoutMs = 120_000, onStep = () => {} }) {
+    const info = await commitInfo(repo, sha, against);
     const result = { ...info, cases: [], verdict: SKIPPED, note: null };
 
     if (info.testFiles.length === 0) { result.note = 'no test file in the commit'; return result; }
     if (info.sourceFiles.length === 0) { result.note = 'test-only commit — no source change to be blind to'; return result; }
 
-    const parent = (await git(repo, ['rev-parse', `${sha}^`])).trim();
+    const parent = against
+        ? (await git(repo, ['merge-base', against, sha])).trim()
+        : (await git(repo, ['rev-parse', `${sha}^`])).trim();
 
     // --- ARM A -------------------------------------------------------------------------
     onStep('arm A');
