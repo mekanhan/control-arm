@@ -1,13 +1,13 @@
 /**
  * Prove the control arm loaded the control arm's code.
  *
- * EARNED ON THE FIRST REAL RUN, 2026-09-23. Verifying auctionmate 8cf7301a, arm B
- * reported 4 pass / 0 fail — a BLIND verdict on one of the most carefully tested commits
- * in that repo. The harness had symlinked the target repo's whole `node_modules` into the
- * worktree. Workspace packages inside it are symlinks relative to the REAL repo:
+ * EARNED ON THE FIRST REAL RUN. Verifying a carefully tested commit, arm B
+ * reported 4 pass / 0 fail — a BLIND verdict on a commit whose test provably cannot pass
+ * on the broken code. The harness had symlinked the target repo's whole `node_modules`
+ * into the worktree. Workspace packages inside it are symlinks relative to the REAL repo:
  *
- *     node_modules/@auctionmate/core -> ../../packages/core
- *     resolved: file:///home/.../auctionmate-project/packages/core/src/bucket.js
+ *     node_modules/@acme/core -> ../../packages/core
+ *     resolved: file:///home/.../the-repo/packages/core/src/parser.js
  *
  * so the test imported the CURRENT source, not the parent's. Arm B never loaded the code
  * under test. Rebuilt with workspace links pointed into the worktree, the same run
@@ -79,8 +79,8 @@ export async function proveIdentity({ worktreeRoot, repoRoot, testFilePath, time
     // worktree would cost an install per commit for no change in behaviour. So resolving
     // to `<repo>/node_modules/...` is correct and must not read as an identity failure.
     //
-    // Measured 2026-09-23: without this, `pg` alone withheld the verdict on 5 of 120
-    // commits. A workspace package is the opposite case and still fails, because node
+    // Measured: without this, one shared third-party package alone withheld the verdict
+    // on 5 of 120 commits. A workspace package is the opposite case and still fails, because node
     // follows its symlink to `<repo>/packages/core/...` — inside the repo, OUTSIDE
     // node_modules. That is the distinction this gate exists to make.
     const vendorUrl = repoRoot ? new URL('file://' + path.join(path.resolve(repoRoot), 'node_modules') + '/').href : null;

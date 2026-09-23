@@ -18,7 +18,7 @@
  * `SyntaxError: does not provide an export named 'TITLE_SEPARATOR'` — because the fix
  * ADDED that export — has a non-zero exit and has told you nothing: it never ran. Read
  * exit code only and you report CAUGHT, and the tool's headline number is inflated
- * garbage. Observed on auctionmate 8cf7301a, 2026-09-23.
+ * garbage. Observed on a real fix commit whose new export the parent did not have.
  *
  * WHY A FALSE `BLIND` IS THE WORST OUTPUT. CAUGHT and INCONCLUSIVE are both survivable
  * — one is good news, the other is an honest shrug. BLIND accuses an engineer of having
@@ -31,11 +31,11 @@ export const CAUGHT = 'CAUGHT';
  * CASE level. The case ran on the broken code and was fine with it.
  *
  * NOT a synonym for "bad test", and renamed from BLIND on 2026-09-23 after the first real
- * run said this about auctionmate 8cf7301a:
+ * run said this about a commit whose fix added a separator class:
  *
- *     ✗ BLIND   TITLE-022 CONTROL ARM: the whitespace-only patterns really do split ...
- *     ✗ BLIND   TITLE-022: the prefix test survives the wider separators ...
- *     ✗ BLIND   TITLE-022: the brands the separator change must not touch
+ *     ✗ BLIND   CONTROL ARM: the old pattern really does split one phrase in two
+ *     ✗ BLIND   the prefix rule survives the wider separator class
+ *     ✗ BLIND   the labels the separator change must not touch
  *
  * All three are REGRESSION GUARDS. They are supposed to be green on both arms — that is
  * their entire job. Calling them blind is a false accusation of a careful engineer, which
@@ -88,7 +88,7 @@ export function classify({ armA, armB, identity }) {
 
     // A case the runner SKIPPED tells us nothing and is not a failure of anything. It gets
     // its own bucket rather than inflating INCONCLUSIVE — 257 of 1,185 cases in the first
-    // auctionmate audit were `skip`, almost all DB-gated tests with no TEST_DATABASE_URL.
+    // 300-commit audit were `skip`, almost all DB-gated tests with no TEST_DATABASE_URL.
     // Folding those into "could not be judged" hides the fact that they are judgeable, by
     // anyone who runs the audit with a database.
     if (armA.status === 'skip') {
@@ -148,7 +148,7 @@ export function reduceRuns(results) {
  * non-discriminating ones is INCONCLUSIVE, not BLIND — the skipped case might have been
  * the discriminating one, and nothing here can know.
  *
- * Earned 2026-09-23 on auctionmate 9db5349c, "the `unlimited` tier was BRICKED". All four
+ * Earned on a commit fixing a null-limit bug in a metering module. All four
  * tests it shipped are `{ skip: SKIP }`, gated on TEST_DATABASE_URL, which the audit host
  * did not set. The older cases in the same file ran and did not discriminate, so an
  * earlier version of this function called the commit BLIND — on the strength of the tests

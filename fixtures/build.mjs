@@ -3,16 +3,20 @@
  *
  * The tool's whole claim is "a test that cannot fail is decoration". A tool that asserts
  * that about other people's tests, while its own suite only checks that it doesn't crash,
- * is the same defect one level up. So: eight tiny git repos where the right verdict is
- * known by construction, and `test/fixtures.test.mjs` asserts the tool returns it.
+ * is the same defect one level up. So: tiny git repos where the right verdict is known by
+ * construction, and `test/fixtures.test.mjs` asserts the tool returns it.
  *
- * If `ca` cannot tell 02-blind-tautology from 01-caught-value, it does not ship.
+ * If `ca` cannot tell 02-blind-direction from 01-caught-value, it does not ship.
  *
- * Every BLIND shape here is a real documented defect from the auctionmate repo's
- * docs/spec/testing.md, not an invented one:
- *   02  TEST-002  assert the VALUE, not the direction
- *   03  TEST-005  execute the shipped code, don't grep it
- *   04           over-mocking the unit under test
+ * THE BUG THEY ALL SHARE. `priority()` maps a label to a number. The broken version joins
+ * its words with `\s*`, which matches whitespace and nothing else, so it reads
+ * "HIGH PRIORITY" but not "HIGH-PRIORITY" — one separator, a different answer. The fixed
+ * version accepts any run of real separators.
+ *
+ * Deliberately a boring, universal domain: every issue tracker has priority labels, and
+ * the fixtures should not require knowing anybody's product to read. Only the TEST differs
+ * between fixtures; the bug is identical in all of them, so a verdict can only come from
+ * the test's quality.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -22,52 +26,53 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '.build');
 
-// The bug every fixture is about, so the verdicts differ only in the TEST, never the bug.
-const BROKEN = `export function titleBrand(raw) {
-    const s = String(raw).toLowerCase();
-    if (/prior\\s*salvage/.test(s)) return 'Rebuilt';   // \\s* matches whitespace and nothing else
-    if (/salvage/.test(s)) return 'Salvage';
-    return 'Clean';
+const BROKEN = `export function priority(label) {
+    const s = String(label).toLowerCase();
+    if (/high\\s*priority/.test(s)) return 1;   // \\s* matches whitespace and nothing else
+    if (/low\\s*priority/.test(s)) return 3;
+    return 2;
 }
-export const MULT = { Clean: 100, Rebuilt: 65, Salvage: 40 };
+export const SLA_HOURS = { 1: 4, 2: 24, 3: 72 };
 `;
-const FIXED = BROKEN.replace('/prior\\s*salvage/', '/prior[-_\\s/.]*salvage/');
+const FIXED = BROKEN
+    .replace('/high\\s*priority/', '/high[-_\\s.]*priority/')
+    .replace('/low\\s*priority/', '/low[-_\\s.]*priority/');
 
 const FIXTURES = {
     '01-caught-value': {
         expect: 'CAUGHT',
-        why: 'asserts the exact brand for the hyphenated spelling',
+        why: 'asserts the exact priority for the hyphenated spelling',
         test: `import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { titleBrand, MULT } from '../src/title.mjs';
-test('hyphenated prior-salvage is Rebuilt at 65', () => {
-    assert.equal(titleBrand('CERT OF TITLE-PRIOR-SALVAGE'), 'Rebuilt');
-    assert.equal(MULT[titleBrand('CERT OF TITLE-PRIOR-SALVAGE')], 65);
+import { priority, SLA_HOURS } from '../src/priority.mjs';
+test('a hyphenated HIGH-PRIORITY label is priority 1, four-hour SLA', () => {
+    assert.equal(priority('HIGH-PRIORITY'), 1);
+    assert.equal(SLA_HOURS[priority('HIGH-PRIORITY')], 4);
 });`,
     },
     '02-blind-direction': {
         expect: 'BLIND',
-        why: 'TEST-002 — asserts a direction (>0) that the wrong answer also satisfies',
+        why: 'asserts a DIRECTION (>0) that the wrong answer also satisfies',
         test: `import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { titleBrand, MULT } from '../src/title.mjs';
-test('hyphenated titles are handled', () => {
-    const b = titleBrand('CERT OF TITLE-PRIOR-SALVAGE');
-    assert.ok(b, 'a brand comes back');
-    assert.ok(MULT[b] > 0, 'it is priced');
-    assert.notEqual(b, undefined);
+import { priority, SLA_HOURS } from '../src/priority.mjs';
+test('hyphenated labels are handled', () => {
+    const p = priority('HIGH-PRIORITY');
+    assert.ok(p, 'a priority comes back');
+    assert.ok(SLA_HOURS[p] > 0, 'it has an SLA');
+    assert.notEqual(p, undefined);
 });`,
     },
     '03-blind-sourcetext': {
         expect: 'BLIND',
-        why: 'TEST-005 — greps the source instead of executing it',
+        why: 'greps the source instead of executing it',
         test: `import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 test('the separator class is tolerant', () => {
-    const src = readFileSync(new URL('../src/title.mjs', import.meta.url), 'utf8');
-    assert.ok(src.includes('prior'), 'the rule mentions prior salvage');
-    assert.ok(/salvage/.test(src));
+    const src = readFileSync(new URL('../src/priority.mjs', import.meta.url), 'utf8');
+    assert.ok(src.includes('priority'), 'the rule mentions priority');
+    assert.ok(/high/.test(src));
 });`,
     },
     '04-blind-overmock': {
@@ -75,22 +80,22 @@ test('the separator class is tolerant', () => {
         why: 'mocks the unit under test, so the real function never runs',
         test: `import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MULT } from '../src/title.mjs';
-const titleBrand = () => 'Rebuilt';   // "stub for speed"
-test('hyphenated prior-salvage is Rebuilt at 65', () => {
-    assert.equal(titleBrand('CERT OF TITLE-PRIOR-SALVAGE'), 'Rebuilt');
-    assert.equal(MULT['Rebuilt'], 65);
+import { SLA_HOURS } from '../src/priority.mjs';
+const priority = () => 1;   // "stubbed for speed"
+test('a hyphenated HIGH-PRIORITY label is priority 1', () => {
+    assert.equal(priority('HIGH-PRIORITY'), 1);
+    assert.equal(SLA_HOURS[1], 4);
 });`,
     },
     '05-inconclusive-newexport': {
         expect: 'INCONCLUSIVE',
         why: 'imports a symbol the fix added — cannot even load at the parent',
-        fixedExtra: `export const SEP = /[-_\\s/.]*/;\n`,
+        fixedExtra: `export const SEPARATORS = /[-_\\s.]*/;\n`,
         test: `import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SEP } from '../src/title.mjs';
-test('separator class is shared', () => {
-    assert.equal(SEP.source, '[-_\\\\s/.]*');
+import { SEPARATORS } from '../src/priority.mjs';
+test('the separator class is shared', () => {
+    assert.equal(SEPARATORS.source, '[-_\\\\s.]*');
 });`,
     },
     '06-inconclusive-armA-red': {
@@ -98,9 +103,9 @@ test('separator class is shared', () => {
         why: 'the case is not green on the fix either — the commit does not stand up',
         test: `import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { titleBrand } from '../src/title.mjs';
-test('hyphenated prior-salvage is Rebuilt', () => {
-    assert.equal(titleBrand('CERT OF TITLE-PRIOR-SALVAGE'), 'TotallyWrongExpectation');
+import { priority } from '../src/priority.mjs';
+test('a hyphenated HIGH-PRIORITY label is priority 1', () => {
+    assert.equal(priority('HIGH-PRIORITY'), 99);
 });`,
     },
     '07-caught-mixed': {
@@ -108,15 +113,15 @@ test('hyphenated prior-salvage is Rebuilt', () => {
         why: 'one discriminating case plus two regression guards green on both arms',
         test: `import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { titleBrand } from '../src/title.mjs';
-test('DISCRIMINATES: hyphenated is Rebuilt', () => {
-    assert.equal(titleBrand('CERT OF TITLE-PRIOR-SALVAGE'), 'Rebuilt');
+import { priority } from '../src/priority.mjs';
+test('DISCRIMINATES: the hyphenated spelling is priority 1', () => {
+    assert.equal(priority('HIGH-PRIORITY'), 1);
 });
-test('GUARD: spaced spelling still Rebuilt', () => {
-    assert.equal(titleBrand('CERT OF TITLE-PRIOR SALVAGE'), 'Rebuilt');
+test('GUARD: the spaced spelling is still priority 1', () => {
+    assert.equal(priority('HIGH PRIORITY'), 1);
 });
-test('GUARD: a plain salvage cert stays Salvage', () => {
-    assert.equal(titleBrand('SALVAGE CERTIFICATE'), 'Salvage');
+test('GUARD: an unlabelled ticket is still the default priority 2', () => {
+    assert.equal(priority('needs triage'), 2);
 });`,
     },
     '09-caught-slash-in-name': {
@@ -124,9 +129,9 @@ test('GUARD: a plain salvage cert stays Salvage', () => {
         why: 'the discriminating case has a SLASH in its name — it used to be silently dropped',
         test: `import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { titleBrand } from '../src/title.mjs';
-test('TITLE-022: VDB title-code / variant-string handling', () => {
-    assert.equal(titleBrand('CERT OF TITLE-PRIOR-SALVAGE'), 'Rebuilt');
+import { priority } from '../src/priority.mjs';
+test('label parsing / separator handling', () => {
+    assert.equal(priority('HIGH-PRIORITY'), 1);
 });`,
     },
     '08-skipped-notest': {
@@ -153,13 +158,13 @@ export function buildFixtures() {
         writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name, type: 'module', private: true }, null, 2));
 
         // --- parent: the bug, and whatever tests existed before (none) ---
-        writeFileSync(path.join(dir, 'src/title.mjs'), BROKEN);
-        sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', 'feat: title brands']);
+        writeFileSync(path.join(dir, 'src/priority.mjs'), BROKEN);
+        sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', 'feat: priority labels']);
 
         // --- fix: source repaired, test added ---
-        writeFileSync(path.join(dir, 'src/title.mjs'), FIXED + (spec.fixedExtra || ''));
-        if (spec.test) writeFileSync(path.join(dir, 'tests/title.test.mjs'), spec.test + '\n');
-        sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', 'fix: a hyphen decided a title was worth 40 instead of 65']);
+        writeFileSync(path.join(dir, 'src/priority.mjs'), FIXED + (spec.fixedExtra || ''));
+        if (spec.test) writeFileSync(path.join(dir, 'tests/priority.test.mjs'), spec.test + '\n');
+        sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', 'fix: a hyphen made a HIGH-PRIORITY ticket read as normal']);
 
         built[name] = { dir, sha: execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD']).toString().trim(), ...spec };
     }

@@ -23,13 +23,13 @@ import { classify, reduceRuns, rollUp, isDisagreement, BLIND, SKIPPED, INCONCLUS
  * Documentation, and nothing else, is "not source".
  *
  * This used to be an ALLOWLIST of `.js/.ts/.tsx/.mjs`, and it made the tool decline the
- * one kind of change it should be best at judging. auctionmate PR #2519 wires the
- * mutation gate: it changes `stryker.conf.json` and `.github/workflows/mutation.yml`, and
- * ships `tests/mutationGateWiring.test.js` to assert that wiring. Zero JS changed, so the
- * commit read as "test-only — no source change to be blind to" and got no verdict.
+ * one kind of change it should be best at judging. A real PR wired a mutation-testing
+ * gate: it changed a tool config and a CI workflow, and shipped a test asserting that
+ * wiring. Zero JS changed, so the commit read as "test-only — no source change to be
+ * blind to" and got no verdict.
  *
  * That is backwards. A guard that is installed but wired to nothing is the dominant defect
- * class in that repo — three instances found in one afternoon — and the test proving a
+ * class in many repos — three instances found in one afternoon — and the test proving a
  * gate is armed is precisely a test that should be shown to fail without the wiring.
  * Config, CI YAML and shell ARE the source for those.
  *
@@ -41,23 +41,21 @@ const DOC_RE = /\.(md|mdx|txt|rst|adoc)$/i;
 /**
  * Files no unit test can exercise, however good the suite is.
  *
- * auctionmate 25392f13 — "fix(ios): pod install aborted on RecaptchaInterop — iOS builds
- * again" — came back as a still-open BLIND. It is not a finding. A CocoaPods resolution
- * failure is caught by a BUILD, and asking whether a unit test would have caught it is a
- * category error. Reporting it as a gap teaches the reader that the tool does not know
+ * A `fix(ios):` commit repairing an aborted CocoaPods install came back as a still-open
+ * BLIND. It is not a finding. A dependency-resolution failure is caught by a BUILD, and
+ * asking whether a unit test would have caught it is a category error. Reporting it as a gap teaches the reader that the tool does not know
  * what a test is for.
  *
  * Deliberately narrow: only manifests and project files for toolchains that build rather
- * than run. A .json or .yml can absolutely be under test (auctionmate #2519's wiring test
- * asserts a workflow file), so those are NOT here.
+ * than run. A .json or .yml can absolutely be under test — a CI-wiring test asserts a
+ * workflow file — so those are NOT here.
  */
 const BUILD_ONLY_RE = /(^|\/)(Podfile(\.lock)?|Gemfile(\.lock)?|Cartfile.*|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|.*\.pbxproj|.*\.xcworkspacedata|.*\.xcscheme|.*\.gradle(\.kts)?|gradle\.properties|.*\.plist|.*\.podspec|.*\.lock)$/i;
 
 /**
  * KNOWN LIMIT, stated rather than papered over: build-time JAVASCRIPT is not detectable
- * by filename. auctionmate 25392f13 ("pod install aborted on RecaptchaInterop") changes
- * `apps/mobile/plugins/withModularHeaders.js` — an Expo config plugin that runs at build
- * time, spelled exactly like runtime source. Webpack/vite/rollup configs and codegen
+ * by filename. One such commit changed `apps/mobile/plugins/withModularHeaders.js` — an
+ * Expo config plugin that runs at BUILD time, spelled exactly like runtime source. Webpack/vite/rollup configs and codegen
  * scripts are the same shape.
  *
  * A heuristic wide enough to catch those (path contains "plugins", "scripts", "config")
@@ -74,7 +72,7 @@ const BUILD_ONLY_RE = /(^|\/)(Podfile(\.lock)?|Gemfile(\.lock)?|Cartfile.*|packa
  * TWO independent signals, because projects pick one or the other and a tool that demands
  * both measures nothing:
  *
- *   1. a `.test.` / `.spec.` suffix anywhere      (auctionmate, most app repos)
+ *   1. a `.test.` / `.spec.` suffix anywhere      (most application repos)
  *   2. living under a test directory              (undici, node core, most library repos)
  *
  * This used to require BOTH — a file under `tests/` AND a `.test.` suffix. Run against
@@ -113,9 +111,9 @@ export async function commitInfo(repo, sha, against = null) {
  * By default the "broken" side is the commit's own parent — right for auditing history,
  * where each fix is judged against the bug it fixed.
  *
- * A PR is different. auctionmate #2519 landed a follow-up commit 6d31f12e whose parent,
- * 300d719c, ALREADY contains the wiring — so commit-vs-parent compares the branch to
- * itself and every case reads non-discriminating. The question a PR gate actually asks is
+ * A PR is different. A real PR landed a follow-up commit whose parent ALREADY contained
+ * the change under test — so commit-vs-parent compares the branch to itself and every
+ * case reads non-discriminating, and a sound PR looks unproven. The question a PR gate asks is
  * "does this test fail WITHOUT THIS BRANCH", so the base is the MERGE BASE of the branch
  * and its target, never the target's tip: develop moves, and diffing against a moved tip
  * drags in everyone else's changes and attributes them here.
@@ -201,12 +199,12 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
  * the repo may have repaired it since, and a BLIND verdict reported as an open defect is a
  * redundant ticket handed to a colleague.
  *
- * Earned 2026-09-23, by doing exactly that. auctionmate c9e46fcb shipped METER-024 with a
- * `d += 3` loop that stepped over 2026-09-06 — the date its own comment named — so it
- * could not fail on the code it was written for. True, and I recommended the one-character
- * fix to a peer about to open a PR. The stride had been `d += 1` since 2026-07-30
- * (45c4ffcc), changed because MUTATION TESTING deleted the loop body and nothing failed.
- * Stryker had found the same defect three months earlier, from the opposite direction.
+ * Earned by doing exactly that. A commit shipped a property-based test whose loop stepped
+ * over the very date its own comment named as the bug, so it could not fail on the code it
+ * was written for. True — and the one-character fix was recommended to a colleague who was
+ * about to open a PR for it. The stride had already been corrected three months earlier,
+ * by MUTATION TESTING, which deleted the loop body and saw nothing fail. A different
+ * instrument had found the same defect from the opposite direction.
  *
  * So: take the CURRENT version of the test file, put it on the parent's broken code, and
  * run it. If it fails now, the gap was repaired and the finding is history, not a ticket.

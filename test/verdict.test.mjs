@@ -20,7 +20,7 @@ test('NON-DISCRIMINATING: green on the fix AND green on the parent', () => {
 });
 
 test('a case green on both arms is never called BLIND — a regression guard is indistinguishable', () => {
-    // Observed on auctionmate 8cf7301a: 3 of its 4 cases are deliberate regression guards.
+    // Observed in practice: 3 of one commit's 4 cases were deliberate regression guards.
     assert.notEqual(classify({ armA: pass, armB: pass }).verdict, BLIND);
 });
 
@@ -38,7 +38,7 @@ test('exit code alone would have gotten that wrong', () => {
 
 test('unproven module identity withholds the verdict even when arm B passed', () => {
     // THE false-BLIND guard. Arm B green + identity unproven is precisely the symlink
-    // trap that made this tool report BLIND on auctionmate 8cf7301a before it had a gate.
+    // trap that made this tool report a false BLIND before it had an identity gate.
     const r = classify({ armA: pass, armB: pass, identity: { proven: false, reason: 'resolved OUTSIDE the worktree' } });
     assert.equal(r.verdict, INCONCLUSIVE);
     assert.notEqual(r.verdict, BLIND);
@@ -73,9 +73,9 @@ test('rollUp: one discriminating case carries the commit, guards and all', () =>
 });
 
 test('rollUp: a SKIPPED case blocks BLIND — it might have been the discriminating one', () => {
-    // auctionmate 9db5349c: all four tests written FOR the bug are { skip: SKIP } on a
-    // host with no TEST_DATABASE_URL, while older cases in the same file ran and did not
-    // discriminate. Calling that blind judges the commit on the tests not written for it.
+    // Observed: all four tests written FOR a bug were { skip: SKIP } on a host with no
+    // TEST_DATABASE_URL, while older cases in the same file ran and did not discriminate.
+    // Calling that blind judges the commit on the tests NOT written for it.
     assert.equal(rollUp([{ verdict: NON_DISCRIMINATING }, { verdict: SKIPPED }]), INCONCLUSIVE);
     assert.equal(rollUp([{ verdict: NON_DISCRIMINATING }, { verdict: NON_DISCRIMINATING }, { verdict: SKIPPED }]), INCONCLUSIVE);
 });

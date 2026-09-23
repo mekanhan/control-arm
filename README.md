@@ -107,8 +107,8 @@ carefully tested commits in the target repo. The harness had symlinked the repo'
 to the real repo*:
 
 ```
-node_modules/@auctionmate/core -> ../../packages/core
-resolved: file:///…/auctionmate-project/packages/core/src/bucket.js   ← today's code
+node_modules/@acme/core -> ../../packages/core
+resolved: file:///…/the-repo/packages/core/src/parser.js   ← today's code
 ```
 
 Arm B never loaded the code under test. Every language has this trap somewhere (venvs,
@@ -166,7 +166,7 @@ suite is held to.
 
 Two repositories, random draws, seeds recorded so the samples are reproducible.
 
-| | auctionmate (private) | nodejs/undici |
+| | a private monorepo | nodejs/undici |
 |---|---|---|
 | fix commits sampled | 300 | 25 |
 | answerable | 214 | 15 |
@@ -182,7 +182,7 @@ assumed either way.
 
 ## How often is this tool wrong?
 
-Ask any measuring instrument this. Here is the answer for this one, on the auctionmate run.
+Ask any measuring instrument this. Here is the answer for this one, on the 300-commit run.
 
 The raw headline was **13 BLIND commits**. After running arm C on each and checking them
 by hand, **5 were real**:

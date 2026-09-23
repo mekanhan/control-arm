@@ -82,9 +82,9 @@ async function audit() {
     const grep = new RegExp(flag('grep', '^(fix|bug)'), 'i');
     // `fix(test): ...` commits repair the TEST. Asking "did the test catch the bug" when
     // the bug WAS the test is a category error, and it produces confident nonsense:
-    // auctionmate 9099aeb6 and 61688d1d both surfaced as still-open BLIND and neither is
-    // a finding. Measured contamination in that repo: 12 of 1,209 (~1%) — small, but it
-    // lands squarely in the headline column. Opt back in with --include-test-fixes.
+    // Two such commits surfaced as still-open BLIND and neither is a finding. Measured
+    // contamination in one real repo: 12 of 1,209 (~1%) — small, but it lands squarely in
+    // the headline column. Opt back in with --include-test-fixes.
     const dropTestFixes = !has('include-test-fixes');
     const TEST_FIX = /^(fix|bug)\s*\((test|tests|ci|build|chore)\)/i;
     const seed = Number(flag('seed', 1));
@@ -105,7 +105,7 @@ async function audit() {
     process.stderr.write(`  ${candidates.length} matched the subject filter · ${eligible.length} ship both a test and a source change\n`);
 
     // Deterministic pseudo-random draw. NOT the newest N, and not a set anyone chose —
-    // a sample you picked cannot measure coverage (auctionmate CT-002).
+    // a sample you picked cannot measure coverage.
     let s = seed >>> 0 || 1;
     const rand = () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32;
     const pool = [...eligible];

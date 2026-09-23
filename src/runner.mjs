@@ -53,14 +53,13 @@ export const nodeTest = {
         // Drop the FILE-level TAP row (node:test emits one named after the path) without
         // touching real cases.
         //
-        // FALSE BLIND, 2026-09-23 — the first thing a random hand-audit caught. This
-        // filter used to be `!c.name.includes('/')`, to drop path-shaped rows. A test
-        // named
-        //     ENRICH-013: VDB title-code / variant-string handling
+        // FALSE BLIND — the first thing a random hand-audit caught. This filter used to
+        // be `!c.name.includes('/')`, to drop path-shaped rows. A test named
+        //     label parsing / separator handling
         // contains a slash, so it was silently dropped from BOTH arms. It was the only
-        // discriminating case in auctionmate 23afbd5e, and the commit came back BLIND —
-        // the tool accusing a correct test of being decoration, which is the one output
-        // that ends trust in it.
+        // discriminating case in its commit, which then came back BLIND — the tool
+        // accusing a correct test of being decoration, which is the one output that ends
+        // trust in it.
         //
         // Match the path we were GIVEN instead of guessing from the shape of a name.
         const isFileRow = (name) => name === relTestPath || name.endsWith('/' + relTestPath) || name.endsWith(relTestPath.split('/').pop());

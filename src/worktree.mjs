@@ -9,7 +9,7 @@
  *    unattended. Everything happens in detached worktrees under `.ca-work/`.
  *
  * 2. Worktrees are REUSED across commits. `git worktree add` copies the whole tree
- *    (3,121 files on auctionmate, ~20s); checking out a new commit inside an existing
+ *    (~3,000 files in a mid-sized repo, ~20s); checking out a new commit inside an existing
  *    worktree only touches what differs. Over 300 commits that is the difference between
  *    a coffee and an afternoon.
  */
@@ -63,7 +63,7 @@ export async function ensureWorktree(repo, workDir, name, sha) {
  * or version-conflicting dependency stays in its own workspace, and there is no way to
  * know which from the outside.
  *
- * Earned 2026-09-23: `apps/mobile/node_modules` holds 25 entries including `jest-expo`.
+ * Earned in practice: a React Native workspace held 25 entries including `jest-expo`.
  * Mirroring only the root gave every mobile commit
  *
  *     ● Validation Error: Preset jest-expo not found.
@@ -158,7 +158,7 @@ async function linkOneTree(srcParent, dstParent, repoRoot, worktreeDir, force) {
  *
  * `git worktree add` checks out TRACKED files only, so `.env` — gitignored by design —
  * is absent. Every DB-backed test then sees no TEST_DATABASE_URL and skips, which is why
- * 955 of 5,956 cases in the auctionmate audit reported SKIPPED even with a database
+ * 955 of 5,956 cases in a 300-commit audit reported SKIPPED even with a database
  * running. The tool was measuring a subset of the suite and correctly saying so, but the
  * subset was an artifact of the harness rather than of the repo.
  *

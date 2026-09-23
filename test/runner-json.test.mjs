@@ -6,8 +6,8 @@
  * The node:test path has 9 end-to-end fixtures: real git repos, both arms, known verdict.
  * These two runners do NOT, because a fixture would have to `npm install` vitest or jest
  * per repo — slow, network-dependent, and version-drifting. The full two-arm path for
- * each is verified on ONE real commit apiece (auctionmate 8dddcd6b for vitest,
- * androidPermissions.test.ts for jest), which is a smoke test, not a control arm.
+ * each is verified on ONE real commit apiece — a vitest component commit and a jest
+ * React Native commit — which is a smoke test, not a control arm.
  *
  * So this file covers the part that is BOTH untested end-to-end AND most likely to be
  * wrong: the text-matching in `classifyMessages`. node:test hands over `ERR_ASSERTION`;

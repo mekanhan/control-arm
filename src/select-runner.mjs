@@ -1,8 +1,8 @@
 /**
  * Which runner owns this test file, and from which directory must it be run?
  *
- * A monorepo has several. In auctionmate: `tests/**` is node:test at the repo root,
- * `apps/web/**` is vitest run from apps/web, `apps/mobile/**` is jest run from
+ * A monorepo has several: `tests/**` may be node:test at the repo root while
+ * `apps/web/**` is vitest run from apps/web and `apps/mobile/**` is jest run from
  * apps/mobile. vitest and jest both resolve their CONFIG relative to cwd, so running
  * them from the repo root silently picks up the wrong project or none at all.
  *
