@@ -38,7 +38,58 @@ import { classify, reduceRuns, rollUp, isDisagreement, BLIND, SKIPPED, INCONCLUS
  */
 const DOC_RE = /\.(md|mdx|txt|rst|adoc)$/i;
 
-const TEST_RE = /(^|\/)(tests?|__tests__|spec)\/.*\.(test|spec)\.(m?[jt]sx?)$|\.(test|spec)\.(m?[jt]sx?)$/;
+/**
+ * Files no unit test can exercise, however good the suite is.
+ *
+ * auctionmate 25392f13 — "fix(ios): pod install aborted on RecaptchaInterop — iOS builds
+ * again" — came back as a still-open BLIND. It is not a finding. A CocoaPods resolution
+ * failure is caught by a BUILD, and asking whether a unit test would have caught it is a
+ * category error. Reporting it as a gap teaches the reader that the tool does not know
+ * what a test is for.
+ *
+ * Deliberately narrow: only manifests and project files for toolchains that build rather
+ * than run. A .json or .yml can absolutely be under test (auctionmate #2519's wiring test
+ * asserts a workflow file), so those are NOT here.
+ */
+const BUILD_ONLY_RE = /(^|\/)(Podfile(\.lock)?|Gemfile(\.lock)?|Cartfile.*|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|.*\.pbxproj|.*\.xcworkspacedata|.*\.xcscheme|.*\.gradle(\.kts)?|gradle\.properties|.*\.plist|.*\.podspec|.*\.lock)$/i;
+
+/**
+ * KNOWN LIMIT, stated rather than papered over: build-time JAVASCRIPT is not detectable
+ * by filename. auctionmate 25392f13 ("pod install aborted on RecaptchaInterop") changes
+ * `apps/mobile/plugins/withModularHeaders.js` — an Expo config plugin that runs at build
+ * time, spelled exactly like runtime source. Webpack/vite/rollup configs and codegen
+ * scripts are the same shape.
+ *
+ * A heuristic wide enough to catch those (path contains "plugins", "scripts", "config")
+ * would also exclude real application code, and a FALSE EXCLUSION is worse than a false
+ * inclusion here: it hides a finding silently, where a category error is at least visible
+ * and arguable. So these reach a verdict and need human triage. The audit's subject
+ * filter catches most of them in practice, because they are usually scoped fix(ios),
+ * fix(build) or similar.
+ */
+
+/**
+ * What counts as a test file.
+ *
+ * TWO independent signals, because projects pick one or the other and a tool that demands
+ * both measures nothing:
+ *
+ *   1. a `.test.` / `.spec.` suffix anywhere      (auctionmate, most app repos)
+ *   2. living under a test directory              (undici, node core, most library repos)
+ *
+ * This used to require BOTH — a file under `tests/` AND a `.test.` suffix. Run against
+ * nodejs/undici, whose tests are `test/client-request.js` with no suffix, the tool
+ * reported "284 commits matched, 0 ship both a test and a source change" and produced an
+ * entirely empty audit. Not a wrong answer: NO answer, on a repo with 261 fix commits
+ * that ship tests.
+ *
+ * Found the first time it was pointed at a codebase its author did not write, which is
+ * the whole argument for doing that before believing any number it prints.
+ */
+const TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs)\//i;
+const TEST_SUFFIX_RE = /\.(test|spec)\.(m?[jt]sx?)$/i;
+const CODE_RE = /\.(m?[jt]sx?)$/i;
+const TEST_RE = (f) => CODE_RE.test(f) && (TEST_SUFFIX_RE.test(f) || TEST_DIR_RE.test(f));
 
 export async function commitInfo(repo, sha, against = null) {
     const out = await git(repo, ['show', '--no-patch', '--format=%H%n%s%n%ad', '--date=short', sha]);
@@ -51,8 +102,8 @@ export async function commitInfo(repo, sha, against = null) {
     return {
         sha: full, short: full.slice(0, 8), subject, date,
         files,
-        testFiles: files.filter(f => TEST_RE.test(f)),
-        sourceFiles: files.filter(f => !TEST_RE.test(f) && !DOC_RE.test(f)),
+        testFiles: files.filter(f => TEST_RE(f)),
+        sourceFiles: files.filter(f => !TEST_RE(f) && !DOC_RE.test(f)),
     };
 }
 
@@ -75,6 +126,10 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
 
     if (info.testFiles.length === 0) { result.note = 'no test file in the commit'; return result; }
     if (info.sourceFiles.length === 0) { result.note = 'test-only commit — no source change to be blind to'; return result; }
+    if (info.sourceFiles.every(f => BUILD_ONLY_RE.test(f))) {
+        result.note = 'build-only change (lockfiles / project files) — a build catches this, not a unit test';
+        return result;
+    }
 
     const parent = against
         ? (await git(repo, ['merge-base', against, sha])).trim()

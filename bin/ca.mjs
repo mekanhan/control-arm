@@ -80,13 +80,21 @@ async function audit() {
     const n = Number(flag('n', 100));
     const since = flag('since', '12 months ago');
     const grep = new RegExp(flag('grep', '^(fix|bug)'), 'i');
+    // `fix(test): ...` commits repair the TEST. Asking "did the test catch the bug" when
+    // the bug WAS the test is a category error, and it produces confident nonsense:
+    // auctionmate 9099aeb6 and 61688d1d both surfaced as still-open BLIND and neither is
+    // a finding. Measured contamination in that repo: 12 of 1,209 (~1%) — small, but it
+    // lands squarely in the headline column. Opt back in with --include-test-fixes.
+    const dropTestFixes = !has('include-test-fixes');
+    const TEST_FIX = /^(fix|bug)\s*\((test|tests|ci|build|chore)\)/i;
     const seed = Number(flag('seed', 1));
     const runs = Number(flag('runs', 1));
 
     process.stderr.write(`  selecting commits (since ${since}, /${grep.source}/) …\n`);
     const log = await git(repo, ['log', `--since=${since}`, '--format=%H|%s', '--no-merges']);
     let candidates = log.trim().split('\n').map(l => { const i = l.indexOf('|'); return { sha: l.slice(0, i), subject: l.slice(i + 1) }; })
-        .filter(c => grep.test(c.subject));
+        .filter(c => grep.test(c.subject))
+        .filter(c => !(dropTestFixes && TEST_FIX.test(c.subject)));
 
     // Cheap pre-filter: only commits that ship BOTH a test and a source change can be judged.
     const eligible = [];
