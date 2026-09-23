@@ -43,7 +43,7 @@ export async function specifiersOf(testFilePath) {
  * Ask node, inside the worktree, where each specifier resolves. Any resolution outside
  * `worktreeRoot` means we are testing somebody else's code.
  */
-export async function proveIdentity({ worktreeRoot, testFilePath, timeoutMs = 30_000 }) {
+export async function proveIdentity({ worktreeRoot, repoRoot, testFilePath, timeoutMs = 30_000 }) {
     let specs;
     try {
         specs = await specifiersOf(testFilePath);
@@ -74,6 +74,16 @@ export async function proveIdentity({ worktreeRoot, testFilePath, timeoutMs = 30
     catch { return { proven: false, reason: 'resolution probe produced no JSON' }; }
 
     const rootUrl = new URL('file://' + path.resolve(worktreeRoot) + '/').href;
+    // Third-party packages are DELIBERATELY shared with the target repo's node_modules —
+    // they are version-pinned content, not the source under test, and installing them per
+    // worktree would cost an install per commit for no change in behaviour. So resolving
+    // to `<repo>/node_modules/...` is correct and must not read as an identity failure.
+    //
+    // Measured 2026-09-23: without this, `pg` alone withheld the verdict on 5 of 120
+    // commits. A workspace package is the opposite case and still fails, because node
+    // follows its symlink to `<repo>/packages/core/...` — inside the repo, OUTSIDE
+    // node_modules. That is the distinction this gate exists to make.
+    const vendorUrl = repoRoot ? new URL('file://' + path.join(path.resolve(repoRoot), 'node_modules') + '/').href : null;
     const escapees = [];
     for (const [spec, url] of Object.entries(resolved)) {
         if (typeof url !== 'string') continue;
@@ -84,7 +94,9 @@ export async function proveIdentity({ worktreeRoot, testFilePath, timeoutMs = 30
         }
         if (!url.startsWith('file:')) continue;                 // node: / data: are fine
         const real = decodeURIComponent(url);
-        if (!real.startsWith(rootUrl)) escapees.push(`${spec} -> ${real}`);
+        if (real.startsWith(rootUrl)) continue;                       // inside the worktree: good
+        if (vendorUrl && real.startsWith(vendorUrl)) continue;         // shared third-party: fine
+        escapees.push(`${spec} -> ${real}`);
     }
     if (escapees.length) {
         return { proven: false, reason: `resolved OUTSIDE the worktree: ${escapees.join('; ')}`, resolved };

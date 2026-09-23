@@ -19,7 +19,7 @@ const cmd = argv[0];
 const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i === -1 ? d : argv[i + 1]; };
 const has = n => argv.includes(`--${n}`);
 const repo = path.resolve(flag('repo', process.cwd()));
-const workDir = path.join(repo, '.ca-work');
+const workDir = path.resolve(flag('work', path.join(repo, '.ca-work')));
 
 function die(msg, code = 2) { console.error(`ca: ${msg}`); process.exit(code); }
 

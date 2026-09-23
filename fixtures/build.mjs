@@ -119,6 +119,16 @@ test('GUARD: a plain salvage cert stays Salvage', () => {
     assert.equal(titleBrand('SALVAGE CERTIFICATE'), 'Salvage');
 });`,
     },
+    '09-caught-slash-in-name': {
+        expect: 'CAUGHT',
+        why: 'the discriminating case has a SLASH in its name — it used to be silently dropped',
+        test: `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { titleBrand } from '../src/title.mjs';
+test('TITLE-022: VDB title-code / variant-string handling', () => {
+    assert.equal(titleBrand('CERT OF TITLE-PRIOR-SALVAGE'), 'Rebuilt');
+});`,
+    },
     '08-skipped-notest': {
         expect: 'SKIPPED',
         why: 'the fix shipped no test at all',

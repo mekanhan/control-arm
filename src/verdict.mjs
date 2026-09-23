@@ -86,6 +86,14 @@ export function classify({ armA, armB, identity }) {
     }
     if (!armA) return { verdict: SKIPPED, reason: 'case not present on the fix' };
 
+    // A case the runner SKIPPED tells us nothing and is not a failure of anything. It gets
+    // its own bucket rather than inflating INCONCLUSIVE — 257 of 1,185 cases in the first
+    // auctionmate audit were `skip`, almost all DB-gated tests with no TEST_DATABASE_URL.
+    // Folding those into "could not be judged" hides the fact that they are judgeable, by
+    // anyone who runs the audit with a database.
+    if (armA.status === 'skip') {
+        return { verdict: SKIPPED, reason: 'the runner skipped this case on the fix (gated on an env var or a service?)' };
+    }
     // The fix must be green, or there is no "before and after" to compare. A red case on
     // the fix means the commit does not stand on its own — not that the test is bad.
     if (armA.status !== 'pass') {

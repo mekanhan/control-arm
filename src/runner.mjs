@@ -50,7 +50,21 @@ export const nodeTest = {
         if (r.killed) return { ok: false, loadFailure: 'timeout', cases: [], raw: r };
 
         const cases = parseTap(r.stdout);
-        const real = cases.filter(c => !c.name.endsWith('.js') && !c.name.endsWith('.mjs') && !c.name.includes('/'));
+        // Drop the FILE-level TAP row (node:test emits one named after the path) without
+        // touching real cases.
+        //
+        // FALSE BLIND, 2026-09-23 — the first thing a random hand-audit caught. This
+        // filter used to be `!c.name.includes('/')`, to drop path-shaped rows. A test
+        // named
+        //     ENRICH-013: VDB title-code / variant-string handling
+        // contains a slash, so it was silently dropped from BOTH arms. It was the only
+        // discriminating case in auctionmate 23afbd5e, and the commit came back BLIND —
+        // the tool accusing a correct test of being decoration, which is the one output
+        // that ends trust in it.
+        //
+        // Match the path we were GIVEN instead of guessing from the shape of a name.
+        const isFileRow = (name) => name === relTestPath || name.endsWith('/' + relTestPath) || name.endsWith(relTestPath.split('/').pop());
+        const real = cases.filter(c => !isFileRow(c.name));
 
         // No individual cases at all, or a single file-path-shaped failure: the file never
         // loaded. This is the SyntaxError/module-not-found path and it must NOT be handed
@@ -59,7 +73,7 @@ export const nodeTest = {
             const why = (r.stderr + r.stdout).match(/\b(SyntaxError|ReferenceError|TypeError|Error \[ERR_MODULE_NOT_FOUND\]|ERR_MODULE_NOT_FOUND|Cannot find (?:module|package))\b[^\n]*/);
             return {
                 ok: false,
-                loadFailure: why ? why[0].slice(0, 220) : (isFileLevelFailure(cases, relTestPath) ? cases[0].message || 'file-level failure' : 'no cases reported'),
+                loadFailure: why ? why[0].slice(0, 220) : (cases.length ? (cases[0].message || 'file-level failure') : 'no cases reported'),
                 cases: [], raw: r,
             };
         }

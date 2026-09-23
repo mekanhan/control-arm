@@ -54,7 +54,7 @@ export async function verifyCommit({ repo, workDir, sha, runs = 1, timeoutMs = 1
         if (!a.ok) { perFile.push({ file: rel, skip: `arm A did not run: ${a.loadFailure}` }); continue; }
 
         const dest = await transplant(repo, sha, rel, parentDir);
-        const identity = await proveIdentity({ worktreeRoot: parentDir, testFilePath: dest });
+        const identity = await proveIdentity({ worktreeRoot: parentDir, repoRoot: repo, testFilePath: dest });
 
         const runsOut = [];
         for (let i = 0; i < runs; i++) {
