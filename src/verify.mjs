@@ -10,7 +10,7 @@
  */
 
 import path from 'node:path';
-import { git, ensureWorktree, linkDependencies, transplant } from './worktree.mjs';
+import { git, ensureWorktree, linkDependencies, linkEnvFiles, transplant } from './worktree.mjs';
 import { proveIdentity } from './identity.mjs';
 import { nodeTest } from './runner.mjs';
 import { vitest, jest } from './runner-json.mjs';
@@ -84,11 +84,13 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
     onStep('arm A');
     const fixDir = await ensureWorktree(repo, workDir, 'fix', sha);
     await linkDependencies(repo, fixDir);
+    await linkEnvFiles(repo, fixDir);
 
     // --- ARM B -------------------------------------------------------------------------
     onStep('arm B');
     const parentDir = await ensureWorktree(repo, workDir, 'parent', parent);
     await linkDependencies(repo, parentDir);
+    await linkEnvFiles(repo, parentDir);
 
     const perFile = [];
     for (const rel of info.testFiles) {

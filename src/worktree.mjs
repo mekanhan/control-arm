@@ -153,6 +153,32 @@ async function linkOneTree(srcParent, dstParent, repoRoot, worktreeDir, force) {
     return { linked, repointed };
 }
 
+/**
+ * Link the repo's gitignored env files into the worktree.
+ *
+ * `git worktree add` checks out TRACKED files only, so `.env` — gitignored by design —
+ * is absent. Every DB-backed test then sees no TEST_DATABASE_URL and skips, which is why
+ * 955 of 5,956 cases in the auctionmate audit reported SKIPPED even with a database
+ * running. The tool was measuring a subset of the suite and correctly saying so, but the
+ * subset was an artifact of the harness rather than of the repo.
+ *
+ * SYMLINKED, never copied. The file holds live credentials; a copy would leave a second
+ * one on disk in a temp directory whose cleanup is not guaranteed. A symlink gives the
+ * child process the same bytes and leaves nothing behind when the worktree is removed.
+ */
+export async function linkEnvFiles(repoRoot, worktreeDir) {
+    const linked = [];
+    for (const name of ['.env', '.env.local', '.env.test', '.env.test.local']) {
+        const src = path.join(repoRoot, name);
+        try { await lstat(src); } catch { continue; }
+        const dst = path.join(worktreeDir, name);
+        await rm(dst, { force: true }).catch(() => {});
+        await symlink(src, dst).catch(() => {});
+        linked.push(name);
+    }
+    return linked;
+}
+
 /** Put the fix's version of a test file onto the parent tree. The transplant. */
 export async function transplant(repo, sha, relPath, worktreeDir) {
     const content = await git(repo, ['show', `${sha}:${relPath}`]);
