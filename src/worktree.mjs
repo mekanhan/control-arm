@@ -56,15 +56,63 @@ export async function ensureWorktree(repo, workDir, name, sha) {
  * `identity.mjs` verifies the result rather than trusting it, because this function is a
  * heuristic over somebody else's directory layout and will eventually be wrong.
  */
+/**
+ * Every node_modules directory in the repo, as paths relative to the root.
+ *
+ * npm workspaces HOIST most packages to the root — but not all. Anything with a native
+ * or version-conflicting dependency stays in its own workspace, and there is no way to
+ * know which from the outside.
+ *
+ * Earned 2026-09-23: `apps/mobile/node_modules` holds 25 entries including `jest-expo`.
+ * Mirroring only the root gave every mobile commit
+ *
+ *     ● Validation Error: Preset jest-expo not found.
+ *
+ * which the tool reported as INCONCLUSIVE for 25 cases. The fail-safe held — nothing was
+ * mislabelled BLIND — but a whole surface silently went unmeasured, which is its own kind
+ * of wrong answer.
+ *
+ * Discovered rather than configured: a hardcoded workspace list would be right for this
+ * repo and wrong for the next one.
+ */
+async function findNodeModulesDirs(repoRoot, maxDepth = 3) {
+    const found = [];
+    const walk = async (rel, depth) => {
+        const abs = path.join(repoRoot, rel);
+        let entries;
+        try { entries = await readdir(abs, { withFileTypes: true }); } catch { return; }
+        if (entries.some(e => e.name === 'node_modules')) found.push(rel);
+        if (depth >= maxDepth) return;
+        for (const e of entries) {
+            if (!e.isDirectory()) continue;
+            // Never descend INTO node_modules — its own nested copies belong to it.
+            if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+            await walk(path.join(rel, e.name), depth + 1);
+        }
+    };
+    await walk('', 0);
+    return found;
+}
+
 export async function linkDependencies(repoRoot, worktreeDir, { force = false } = {}) {
-    const src = path.join(repoRoot, 'node_modules');
-    const dst = path.join(worktreeDir, 'node_modules');
-    try { await lstat(src); } catch { return { linked: 0, note: 'target repo has no node_modules' }; }
+    const dirs = await findNodeModulesDirs(repoRoot);
+    let total = { linked: 0, repointed: 0, trees: 0 };
+    for (const rel of dirs) {
+        const r = await linkOneTree(path.join(repoRoot, rel), path.join(worktreeDir, rel), repoRoot, worktreeDir, force);
+        total.linked += r.linked; total.repointed += r.repointed; total.trees += r.linked ? 1 : 0;
+    }
+    return total;
+}
+
+async function linkOneTree(srcParent, dstParent, repoRoot, worktreeDir, force) {
+    const src = path.join(srcParent, 'node_modules');
+    const dst = path.join(dstParent, 'node_modules');
+    try { await lstat(src); } catch { return { linked: 0, repointed: 0, note: 'no node_modules here' }; }
 
     // Worktrees are reused across commits and node_modules is excluded from `git clean`,
     // so this only has to run once per worktree. Rebuilding ~1,300 symlinks per commit
     // dominated the audit's runtime and changed nothing.
-    if (!force) { try { await lstat(dst); return { linked: 0, note: 'reused' }; } catch { /* build it */ } }
+    if (!force) { try { await lstat(dst); return { linked: 0, repointed: 0, note: 'reused' }; } catch { /* build it */ } }
 
     await rm(dst, { recursive: true, force: true });
     await mkdir(dst, { recursive: true });
