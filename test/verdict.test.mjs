@@ -72,6 +72,14 @@ test('rollUp: one discriminating case carries the commit, guards and all', () =>
     assert.equal(rollUp([{ verdict: NON_DISCRIMINATING }, { verdict: NON_DISCRIMINATING }, { verdict: CAUGHT }]), CAUGHT);
 });
 
+test('rollUp: a SKIPPED case blocks BLIND — it might have been the discriminating one', () => {
+    // auctionmate 9db5349c: all four tests written FOR the bug are { skip: SKIP } on a
+    // host with no TEST_DATABASE_URL, while older cases in the same file ran and did not
+    // discriminate. Calling that blind judges the commit on the tests not written for it.
+    assert.equal(rollUp([{ verdict: NON_DISCRIMINATING }, { verdict: SKIPPED }]), INCONCLUSIVE);
+    assert.equal(rollUp([{ verdict: NON_DISCRIMINATING }, { verdict: NON_DISCRIMINATING }, { verdict: SKIPPED }]), INCONCLUSIVE);
+});
+
 test('rollUp: BLIND only when every case ran and NOT ONE discriminated', () => {
     assert.equal(rollUp([{ verdict: NON_DISCRIMINATING }, { verdict: NON_DISCRIMINATING }]), BLIND);
     // one case could not be judged -> the commit cannot be called blind

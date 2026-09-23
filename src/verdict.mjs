@@ -141,14 +141,28 @@ export function reduceRuns(results) {
     return decided[0];
 }
 
-/** Commit-level roll-up. A commit is CAUGHT if ANY of its cases discriminates. */
+/**
+ * Commit-level roll-up. A commit is CAUGHT if ANY of its cases discriminates.
+ *
+ * BLIND requires that EVERY case actually RAN. A commit with one skipped case and three
+ * non-discriminating ones is INCONCLUSIVE, not BLIND — the skipped case might have been
+ * the discriminating one, and nothing here can know.
+ *
+ * Earned 2026-09-23 on auctionmate 9db5349c, "the `unlimited` tier was BRICKED". All four
+ * tests it shipped are `{ skip: SKIP }`, gated on TEST_DATABASE_URL, which the audit host
+ * did not set. The older cases in the same file ran and did not discriminate, so an
+ * earlier version of this function called the commit BLIND — on the strength of the tests
+ * that were NOT written for the bug, while the four that were sat unexecuted. Run the
+ * audit with a database and the same commit may well be CAUGHT.
+ *
+ * Same principle as everywhere else here: ambiguity resolves AWAY from BLIND.
+ */
 export function rollUp(caseVerdicts) {
     if (caseVerdicts.length === 0) return SKIPPED;
     const has = v => caseVerdicts.some(c => c.verdict === v);
     if (has(CAUGHT)) return CAUGHT;
     if (has(FLAKY)) return FLAKY;
-    // Every case ran and none discriminated: the commit shipped tests that its own bug
-    // would have walked past.
-    if (caseVerdicts.every(c => c.verdict === NON_DISCRIMINATING || c.verdict === SKIPPED) && has(NON_DISCRIMINATING)) return BLIND;
+    if (has(INCONCLUSIVE) || has(SKIPPED)) return INCONCLUSIVE;
+    if (caseVerdicts.every(c => c.verdict === NON_DISCRIMINATING)) return BLIND;
     return INCONCLUSIVE;
 }
