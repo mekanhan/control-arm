@@ -2,6 +2,62 @@
 
 **Does a test actually fail on the code it was written to catch?**
 
+## In plain words
+
+When you fix a bug, you usually add a test so it can't come back. Everyone does this.
+**Nobody ever checks whether that test would actually have caught the bug.**
+
+This checks. It takes the test you wrote, rewinds your code to just before the fix, and
+runs the test there. Red means it works. Green means it was never capable of catching
+anything — it just sits in your suite looking like protection.
+
+It does not write tests, and there is no AI in it. It runs your tests and reports what
+happened.
+
+### Two tests for the same bug
+
+```js
+// A
+assert.equal(titleBrand('CERT OF TITLE-PRIOR-SALVAGE'), 'Rebuilt');
+
+// B
+const b = titleBrand('CERT OF TITLE-PRIOR-SALVAGE');
+assert.ok(b);            // any string is truthy
+assert.ok(MULT[b] > 0);  // 40 > 0 is true
+```
+
+On the fixed code both pass. On the broken code **A fails and B still passes.** In CI they
+are identical — two green checkmarks. That is the gap.
+
+### "My tests are all green. So what happens?"
+
+Green tells you nothing here, because **both arms start green.** A passing suite is the
+starting condition, not the result. The tool re-runs those same green tests against the
+broken code and watches which ones *break*.
+
+On a healthy commit you see one or two `CAUGHT` and a pile of `NON-DISCRIMINATING` — and
+that is the **good** outcome. One test was aimed at the bug; the rest were guarding other
+things. The only worrying result is a commit where *nothing* caught it.
+
+### Which of your tests does it look at?
+
+It does not care what *kind* of test it is, only whether the runner can execute the file.
+
+| kind | covered | why |
+|---|---|---|
+| unit tests | yes | the easy case |
+| backend / server logic | yes | same runner, same rewind |
+| database-backed tests | yes | needs a live DB, else they report SKIPPED |
+| component tests (React / RN) | yes | via vitest and jest |
+| browser e2e (Playwright) | **no** | no Playwright runner yet |
+| performance / load | **no** | they measure speed, not correctness |
+| manual QA | **no** | nothing to execute |
+
+Mostly unit tests in practice, but not only — anything `node --test`, `vitest` or `jest`
+can run, including tests that talk to a real Postgres.
+
+---
+
 A test that cannot fail is decoration. Nothing in a normal CI pipeline can tell a test
 that catches its bug from a test that would have shipped green either way — both are a
 checkmark. `ca` tells them apart, by running the new test against the old code.
