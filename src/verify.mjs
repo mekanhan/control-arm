@@ -19,6 +19,25 @@ import { selectRunner } from './select-runner.mjs';
 const RUNNERS = { node: nodeTest, vitest, jest };
 import { classify, reduceRuns, rollUp, isDisagreement, BLIND, SKIPPED, INCONCLUSIVE } from './verdict.mjs';
 
+/**
+ * Documentation, and nothing else, is "not source".
+ *
+ * This used to be an ALLOWLIST of `.js/.ts/.tsx/.mjs`, and it made the tool decline the
+ * one kind of change it should be best at judging. auctionmate PR #2519 wires the
+ * mutation gate: it changes `stryker.conf.json` and `.github/workflows/mutation.yml`, and
+ * ships `tests/mutationGateWiring.test.js` to assert that wiring. Zero JS changed, so the
+ * commit read as "test-only — no source change to be blind to" and got no verdict.
+ *
+ * That is backwards. A guard that is installed but wired to nothing is the dominant defect
+ * class in that repo — three instances found in one afternoon — and the test proving a
+ * gate is armed is precisely a test that should be shown to fail without the wiring.
+ * Config, CI YAML and shell ARE the source for those.
+ *
+ * So: deny-list the docs, accept the rest. A commit that changes only Markdown genuinely
+ * has nothing to be blind to; everything else might.
+ */
+const DOC_RE = /\.(md|mdx|txt|rst|adoc)$/i;
+
 const TEST_RE = /(^|\/)(tests?|__tests__|spec)\/.*\.(test|spec)\.(m?[jt]sx?)$|\.(test|spec)\.(m?[jt]sx?)$/;
 
 export async function commitInfo(repo, sha) {
@@ -29,7 +48,7 @@ export async function commitInfo(repo, sha) {
         sha: full, short: full.slice(0, 8), subject, date,
         files,
         testFiles: files.filter(f => TEST_RE.test(f)),
-        sourceFiles: files.filter(f => !TEST_RE.test(f) && /\.(m?[jt]sx?)$/.test(f)),
+        sourceFiles: files.filter(f => !TEST_RE.test(f) && !DOC_RE.test(f)),
     };
 }
 
