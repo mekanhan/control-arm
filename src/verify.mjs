@@ -13,6 +13,10 @@ import path from 'node:path';
 import { git, ensureWorktree, linkDependencies, transplant } from './worktree.mjs';
 import { proveIdentity } from './identity.mjs';
 import { nodeTest } from './runner.mjs';
+import { vitest, jest } from './runner-json.mjs';
+import { selectRunner } from './select-runner.mjs';
+
+const RUNNERS = { node: nodeTest, vitest, jest };
 import { classify, reduceRuns, rollUp, SKIPPED, INCONCLUSIVE } from './verdict.mjs';
 
 const TEST_RE = /(^|\/)(tests?|__tests__|spec)\/.*\.(test|spec)\.(m?[jt]sx?)$|\.(test|spec)\.(m?[jt]sx?)$/;
@@ -50,18 +54,24 @@ export async function verifyCommit({ repo, workDir, sha, runs = 1, timeoutMs = 1
 
     const perFile = [];
     for (const rel of info.testFiles) {
-        const a = await nodeTest.execute({ worktreeDir: fixDir, relTestPath: rel, timeoutMs });
-        if (!a.ok) { perFile.push({ file: rel, skip: `arm A did not run: ${a.loadFailure}` }); continue; }
+        // Chosen from the FIX worktree: the parent may predate the config file entirely,
+        // and the question is which runner the test was written for.
+        const { flavour, pkgDir } = await selectRunner(fixDir, rel);
+        const runner = RUNNERS[flavour];
+        const opts = { relTestPath: rel, pkgDir, timeoutMs };
+
+        const a = await runner.execute({ worktreeDir: fixDir, ...opts });
+        if (!a.ok) { perFile.push({ file: rel, runner: flavour, skip: `arm A did not run (${flavour}): ${a.loadFailure}` }); continue; }
 
         const dest = await transplant(repo, sha, rel, parentDir);
         const identity = await proveIdentity({ worktreeRoot: parentDir, repoRoot: repo, testFilePath: dest });
 
         const runsOut = [];
         for (let i = 0; i < runs; i++) {
-            const b = await nodeTest.execute({ worktreeDir: parentDir, relTestPath: rel, timeoutMs });
+            const b = await runner.execute({ worktreeDir: parentDir, ...opts });
             runsOut.push({ b, identity });
         }
-        perFile.push({ file: rel, armA: a, runs: runsOut, identity });
+        perFile.push({ file: rel, runner: flavour, armA: a, runs: runsOut, identity });
     }
 
     // --- verdicts ----------------------------------------------------------------------
