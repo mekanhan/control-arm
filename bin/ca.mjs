@@ -156,6 +156,36 @@ async function audit() {
         console.log(`  HTML report: ${path.resolve(htmlOut)}\n`);
     }
 
+    // A MACHINE-READABLE SUMMARY, because a consumer should never have to parse the CSV.
+    //
+    // The first workflow to use this counted still-open findings with `awk -F','`, which
+    // does not respect quoting — and a commit subject like
+    //   fix(web): the chart said "40 sales" under a headline saying 3,214
+    // shifts every field after it. Field 5 came back as '', 'INCONCLUSIVE' and
+    // ' TITLE-015/016)"' instead of the still_open column. The true answer was 3.
+    //
+    // CSV is for humans and spreadsheets. This is for scripts.
+    const jsonOut = flag('json');
+    if (jsonOut) {
+        const byStatus = (st) => results.filter(r => r.stillOpen?.status === st)
+            .map(r => ({ sha: r.sha, short: r.short, date: r.date, subject: r.subject }));
+        const answerable = results.filter(r => r.verdict === CAUGHT || r.verdict === BLIND).length;
+        await writeFile(path.resolve(jsonOut), JSON.stringify({
+            repo: path.basename(repo),
+            generated: new Date().toISOString(),
+            sample: { drawn: sample.length, matched: candidates.length, judgeable: eligible.length, seed, since },
+            commits: Object.fromEntries([CAUGHT, BLIND, FLAKY, INCONCLUSIVE, SKIPPED]
+                .map(v => [v.toLowerCase(), results.filter(r => r.verdict === v).length])),
+            answerable,
+            caught_pct: answerable ? Number(((results.filter(r => r.verdict === CAUGHT).length / answerable) * 100).toFixed(1)) : null,
+            still_open: byStatus('open'),
+            repaired_since: byStatus('repaired'),
+            cannot_tell: results.filter(r => r.verdict === BLIND && (!r.stillOpen || r.stillOpen.status === 'unknown'))
+                .map(r => ({ sha: r.sha, short: r.short, subject: r.subject })),
+        }, null, 2));
+        console.log(`  JSON summary: ${path.resolve(jsonOut)}\n`);
+    }
+
     const out = flag('out');
     if (out) {
         const esc = v => `"${String(v ?? '').replace(/"/g, '""').replace(/\s+/g, ' ').slice(0, 400)}"`;
