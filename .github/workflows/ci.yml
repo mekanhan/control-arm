@@ -60,8 +60,16 @@ jobs:
           # That commit added the rule "a SKIPPED case blocks BLIND", with a test written
           # for it. If the tool cannot still see that test discriminate, the tool is broken
           # — regardless of what its unit suite says.
-          echo "$OUT" | grep -q 'VERDICT  CAUGHT' \
+          # Match the VERDICT WORD, not the whole line. This grep was 'VERDICT  CAUGHT'
+          # and broke the moment a glyph was added between them — a cosmetic change that
+          # failed a correctness gate, which trains people to edit the gate rather than
+          # believe it. Anchor on what the check is actually about.
+          echo "$OUT" | grep -qE '^ *VERDICT .*\bCAUGHT\b' \
             || { echo "::error::control-arm no longer judges its own fix correctly"; exit 1; }
+          # And it must be the STRONG claim: 1845c1d3 is a repair, so a "weak evidence"
+          # qualifier here would mean the new-code heuristic has started misfiring on fixes.
+          echo "$OUT" | grep -q 'weak evidence' \
+            && { echo "::error::a repair was labelled new code — the kind heuristic is wrong"; exit 1; }
           echo "$OUT" | grep -q 'module identity verified' \
             || { echo "::error::module identity was not proven — a verdict here is not trustworthy"; exit 1; }
 
