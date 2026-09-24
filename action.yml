@@ -45,14 +45,26 @@ runs:
                 --timeout "$CA_TIMEOUT" 2>&1) || true
         echo "$OUT"
 
-        VERDICT=$(printf '%s' "$OUT" | grep -oE 'VERDICT +[A-Z]+' | awk '{print $2}' | head -1)
+        # `|| true` is load-bearing. GitHub runs bash steps with `set -e` by default, and
+        # `set -uo pipefail` above does not unset it. A grep that finds nothing exits 1,
+        # pipefail propagates it, and the step dies BEFORE the :-INCONCLUSIVE fallback can
+        # run. That is exactly what happens on a PR the tool declines — a workflow-only
+        # change with no test — so the one case designed to be a non-event failed the check.
+        VERDICT=$(printf '%s' "$OUT" | grep -oE 'VERDICT +[A-Z]+' | awk '{print $2}' | head -1 || true)
         VERDICT="${VERDICT:-INCONCLUSIVE}"
         echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
 
-        MD=$(node "${{ github.action_path }}/bin/ca.mjs" verify "$TIP" \
-               --against "origin/$CA_BASE" --pr-comment \
-               --repo "$GITHUB_WORKSPACE" --timeout "$CA_TIMEOUT" 2>/dev/null) || true
-        printf '%s' "$MD" > "$RUNNER_TEMP/ca-comment.md"
+        # A declined commit has nothing useful to say on a PR. Writing an empty file is
+        # what makes the comment step skip cleanly rather than posting a blank.
+        if [ "$VERDICT" = "SKIPPED" ]; then
+          echo "nothing to report: $(printf '%s' "$OUT" | tail -1)"
+          : > "$RUNNER_TEMP/ca-comment.md"
+        else
+          MD=$(node "${{ github.action_path }}/bin/ca.mjs" verify "$TIP" \
+                 --against "origin/$CA_BASE" --pr-comment \
+                 --repo "$GITHUB_WORKSPACE" --timeout "$CA_TIMEOUT" 2>/dev/null) || true
+          printf '%s' "$MD" > "$RUNNER_TEMP/ca-comment.md"
+        fi
 
     - shell: bash
       if: inputs.comment == 'true' && github.event_name == 'pull_request'
