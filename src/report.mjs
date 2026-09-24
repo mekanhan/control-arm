@@ -39,13 +39,22 @@ export function renderVerify(r) {
     L.push(idn ? `  ${MARK.no} module identity NOT proven — every verdict below is withheld`
                : `  ${MARK.ok} module identity verified (arm B resolved inside the parent worktree)`);
     L.push('');
+    // The legend belongs HERE more than on the audit summary. `verify` is the command
+    // someone runs first, and "– no-discrim." means nothing to a reader seeing it once.
+    L.push('  LEGEND   ✓ fails without the fix (this test works)   – green either way (a guard looks like this)');
+    L.push('           ⚠ could not run on the old code   ~ flaky   · skipped by the runner');
+    L.push('');
 
     const byFile = new Map();
     for (const c of r.cases) { if (!byFile.has(c.file)) byFile.set(c.file, []); byFile.get(c.file).push(c); }
     for (const [file, cases] of byFile) {
         L.push(`  ${file}`);
         for (const c of cases) {
-            const label = c.verdict === CAUGHT ? 'DISCRIMINATES' : c.verdict === NON_DISCRIMINATING ? 'no-discrim.  ' : c.verdict === FLAKY ? 'FLAKY        ' : c.verdict === SKIPPED ? 'skip         ' : 'INCONCLUSIVE ';
+            const label = c.verdict === CAUGHT ? 'CATCHES IT   '
+                        : c.verdict === NON_DISCRIMINATING ? 'green either way'
+                        : c.verdict === FLAKY ? 'FLAKY           '
+                        : c.verdict === SKIPPED ? 'skipped         '
+                        : 'COULD NOT RUN   ';
             L.push(`    ${GLYPH[c.verdict]} ${label} ${c.name}`);
             // The assertion note, where there is one, says something the generic reason
             // cannot: WHY this case could not have caught the bug. Prefer it.
@@ -60,7 +69,15 @@ export function renderVerify(r) {
         L.push(`  ${m} — ${r.stillOpen.reason}`);
         L.push('');
     }
-    L.push(`  VERDICT  ${r.verdict}   ·  ${n(CAUGHT)} discriminating, ${n(NON_DISCRIMINATING)} non-discriminating (guards look like this too), ${n(FLAKY)} flaky, ${n(INCONCLUSIVE)} inconclusive`);
+    const plain = r.verdict === CAUGHT
+        ? `${n(CAUGHT)} test${n(CAUGHT) === 1 ? '' : 's'} here would have caught this bug. The rest are guards or could not run.`
+        : r.verdict === BLIND
+        ? `NOTHING here would have caught this bug — every test is green on the broken code.`
+        : r.verdict === FLAKY ? `A test gave different answers on repeated runs. Do not trust either.`
+        : `Could not judge this commit. See the reason above — it is not a pass or a fail.`;
+    L.push(`  VERDICT  ${GLYPH[r.verdict] ?? ''} ${r.verdict}`);
+    L.push(`           ${plain}`);
+    L.push(`           ${n(CAUGHT)} catch it · ${n(NON_DISCRIMINATING)} green either way · ${n(FLAKY)} flaky · ${n(INCONCLUSIVE)} could not run`);
     L.push('');
     return L.join('\n');
 }

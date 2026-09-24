@@ -62,7 +62,51 @@ A test that cannot fail is decoration. Nothing in a normal CI pipeline can tell 
 that catches its bug from a test that would have shipped green either way — both are a
 checkmark. `ca` tells them apart, by running the new test against the old code.
 
-## Start here: the PR check
+## Try it in two minutes
+
+No setup, no config, nothing to install — it has no dependencies.
+
+```bash
+git clone https://github.com/mekanhan/control-arm && cd control-arm
+
+# 1. Can this repo be measured at all?
+node bin/ca.mjs doctor --repo .
+
+# 2. Judge one commit. This one is control-arm's own bug fix.
+node bin/ca.mjs verify 1845c1d3 --repo .
+```
+
+You get:
+
+```
+  1845c1d3  fix: a SKIPPED case blocks BLIND
+  ✓ module identity verified
+
+  LEGEND   ✓ fails without the fix (this test works)   – green either way (a guard looks like this)
+           ⚠ could not run on the old code   ~ flaky   · skipped by the runner
+
+  test/verdict.test.mjs
+    ✓ CATCHES IT    rollUp: a SKIPPED case blocks BLIND
+    – green either way  rollUp: one discriminating case carries the commit
+              └ asserts an exact expected value — most likely a deliberate regression guard
+
+  VERDICT  ✓ CAUGHT
+           1 test here would have caught this bug. The rest are guards or could not run.
+```
+
+**Read it like this:** one test was aimed at the bug and genuinely catches it. The other
+fourteen stay green either way — which is what a regression guard is *supposed* to do.
+That mix is the healthy outcome. The result to worry about is `✗ BLIND`: nothing in the
+commit fails on the broken code.
+
+Then point it at your own repo:
+
+```bash
+node bin/ca.mjs verify <any-fix-sha> --repo ~/path/to/your-repo
+node bin/ca.mjs audit --repo ~/path/to/your-repo --n 30 --html report.html
+```
+
+## Then: the PR check
 
 The primary use. It runs in seconds, it is deterministic, and it puts the answer where the
 decision is made.
