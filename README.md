@@ -62,11 +62,49 @@ A test that cannot fail is decoration. Nothing in a normal CI pipeline can tell 
 that catches its bug from a test that would have shipped green either way — both are a
 checkmark. `ca` tells them apart, by running the new test against the old code.
 
+## Start here: the PR check
+
+The primary use. It runs in seconds, it is deterministic, and it puts the answer where the
+decision is made.
+
+```yaml
+# .github/workflows/control-arm.yml
+- uses: mekanhan/control-arm@master
+  with:
+    base: develop          # compares against the MERGE BASE with this, never its tip
+    comment: 'true'        # one comment per PR, edited in place
+    fail-on-blind: 'false' # advisory by default — see below
+```
+
+It posts this:
+
+```
+### `control-arm` — this branch is proven
+
+**3 of 4 cases cannot pass without this change.**
+
+| | case | on the base |
+|---|---|---|
+| ✅ | MUTGATE-001: a scheduled workflow runs the mutation suite | mutation.yml is missing — nothing runs mutation testing |
+| ⚪️ | MUTGATE-003: every mutated file exists | _green on both — a regression guard looks like this too_ |
+```
+
+**`fail-on-blind` is false by default, deliberately.** A PR may legitimately ship only
+regression guards, and a gate that fires on those is switched off within a week. This
+comments; a person decides. Turn it on only where every fix genuinely must ship a
+discriminating test.
+
+### Everything else
+
 ```bash
 ca doctor                        # can this repo be measured?
 ca verify <commit>               # one commit, per-case verdicts
-ca audit --n 100 --out r.csv     # a random sample, with an honest denominator
+ca verify <tip> --against main   # a whole branch, against its merge base
+ca audit --n 100 --html r.html   # a random sample, with an honest denominator
 ```
+
+The audit is the interesting one and the slow one — roughly 8s per commit, so a 300-commit
+sample is a nightly job, not a check.
 
 ## The mechanism
 

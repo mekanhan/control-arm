@@ -1,0 +1,80 @@
+# A composite action, not a Docker one: the tool is plain Node with no dependencies, so a
+# container would add a minute of build time to a check that otherwise takes seconds.
+name: 'control-arm'
+description: 'Prove the tests in this PR fail without it'
+inputs:
+  base:
+    description: 'Branch this PR targets. The comparison uses the MERGE BASE with it, never its tip.'
+    required: false
+    default: 'develop'
+  comment:
+    description: 'Post the result as a PR comment. Needs pull-requests:write and GH_TOKEN.'
+    required: false
+    default: 'true'
+  fail-on-blind:
+    description: >-
+      Fail the check when NO case in the PR discriminates. Default false: a PR can
+      legitimately ship only regression guards, and a gate that fires on those gets
+      switched off within a week.
+    required: false
+    default: 'false'
+  timeout-ms:
+    required: false
+    default: '180000'
+outputs:
+  verdict:
+    description: 'CAUGHT | BLIND | INCONCLUSIVE | FLAKY | SKIPPED'
+    value: ${{ steps.run.outputs.verdict }}
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        CA_BASE: ${{ inputs.base }}
+        CA_TIMEOUT: ${{ inputs.timeout-ms }}
+      run: |
+        set -uo pipefail
+        # The merge base needs both histories. A shallow checkout has neither.
+        git -C "$GITHUB_WORKSPACE" fetch --no-tags --depth=200 origin "$CA_BASE" 2>/dev/null || true
+        TIP="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+
+        OUT=$(node "${{ github.action_path }}/bin/ca.mjs" verify "$TIP" \
+                --against "origin/$CA_BASE" \
+                --repo "$GITHUB_WORKSPACE" \
+                --timeout "$CA_TIMEOUT" 2>&1) || true
+        echo "$OUT"
+
+        VERDICT=$(printf '%s' "$OUT" | grep -oE 'VERDICT +[A-Z]+' | awk '{print $2}' | head -1)
+        VERDICT="${VERDICT:-INCONCLUSIVE}"
+        echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+
+        MD=$(node "${{ github.action_path }}/bin/ca.mjs" verify "$TIP" \
+               --against "origin/$CA_BASE" --pr-comment \
+               --repo "$GITHUB_WORKSPACE" --timeout "$CA_TIMEOUT" 2>/dev/null) || true
+        printf '%s' "$MD" > "$RUNNER_TEMP/ca-comment.md"
+
+    - shell: bash
+      if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # One comment per PR, edited in place. A new comment per push turns a useful
+        # signal into noise by the third revision.
+        BODY_FILE="$RUNNER_TEMP/ca-comment.md"
+        [ -s "$BODY_FILE" ] || { echo "no comment body produced"; exit 0; }
+        PR="${{ github.event.pull_request.number }}"
+        EXISTING=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" \
+                    --jq '[.[] | select(.body | startswith("### `control-arm`"))][0].id' 2>/dev/null || echo "")
+        if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+          gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$EXISTING" \
+            -F body=@"$BODY_FILE" >/dev/null && echo "updated comment $EXISTING"
+        else
+          gh pr comment "$PR" --body-file "$BODY_FILE" && echo "posted a new comment"
+        fi
+
+    - shell: bash
+      if: inputs.fail-on-blind == 'true' && steps.run.outputs.verdict == 'BLIND'
+      run: |
+        echo "::error::No test in this PR fails without the change."
+        exit 1
