@@ -69,21 +69,16 @@ runs:
     - shell: bash
       if: inputs.comment == 'true' && github.event_name == 'pull_request'
       env:
-        GH_TOKEN: ${{ github.token }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
-        # One comment per PR, edited in place. A new comment per push turns a useful
-        # signal into noise by the third revision.
-        BODY_FILE="$RUNNER_TEMP/ca-comment.md"
-        [ -s "$BODY_FILE" ] || { echo "no comment body produced"; exit 0; }
-        PR="${{ github.event.pull_request.number }}"
-        EXISTING=$(gh api "repos/${{ github.repository }}/issues/$PR/comments" \
-                    --jq '[.[] | select(.body | startswith("### `control-arm`"))][0].id' 2>/dev/null || echo "")
-        if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
-          gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$EXISTING" \
-            -F body=@"$BODY_FILE" >/dev/null && echo "updated comment $EXISTING"
-        else
-          gh pr comment "$PR" --body-file "$BODY_FILE" && echo "posted a new comment"
-        fi
+        # node, not `gh`. The CLI is not installed on every runner — a self-hosted
+        # bare-metal box failed here with `gh: command not found` after every other step
+        # had passed, so the tool ran, reached the right verdict, and could not say so.
+        node "${{ github.action_path }}/scripts/gh-api.mjs" upsert-pr-comment \
+          "${{ github.repository }}" \
+          "${{ github.event.pull_request.number }}" \
+          "$RUNNER_TEMP/ca-comment.md" \
+          '### `control-arm`'
 
     - shell: bash
       if: inputs.fail-on-blind == 'true' && steps.run.outputs.verdict == 'BLIND'
