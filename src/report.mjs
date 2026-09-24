@@ -97,10 +97,28 @@ export function renderAudit(results, meta) {
 
     const blind = results.filter(r => r.verdict === BLIND);
     if (blind.length) {
-        L.push('  BLIND COMMITS — every case green on the broken code');
-        for (const r of blind.slice(0, 40)) L.push(`    ${r.short}  ${r.date}  ${r.subject.slice(0, 84)}`);
-        if (blind.length > 40) L.push(`    … and ${blind.length - 40} more (see CSV)`);
+        // ARM C SPLIT — the only line in this report that is a TICKET rather than a fact.
+        // A raw BLIND count is close to useless as a headline: on a 300-commit run it was
+        // 13, of which 3 were already repaired and 2 unjudgeable. Reporting the count
+        // alone hands somebody thirteen tickets, eight of which waste their afternoon.
+        const open = blind.filter(r => r.stillOpen?.status === 'open');
+        const repaired = blind.filter(r => r.stillOpen?.status === 'repaired');
+        const cannot = blind.filter(r => !r.stillOpen || r.stillOpen.status === 'unknown');
+
+        L.push('  STILL OPEN TODAY — the only rows that are work');
+        if (open.length) for (const r of open) L.push(`    ‼ ${r.short}  ${r.date}  ${r.subject.slice(0, 82)}`);
+        else L.push('    (none — every blind finding was repaired later or cannot be judged)');
         L.push('');
+        if (repaired.length) {
+            L.push(`  ↻ REPAIRED SINCE — true of the commit, already fixed in the tree (${repaired.length})`);
+            for (const r of repaired.slice(0, 12)) L.push(`      ${r.short}  ${r.subject.slice(0, 80)}`);
+            L.push('');
+        }
+        if (cannot.length) {
+            L.push(`  ? CANNOT TELL — the test file no longer exists, or will not run at HEAD (${cannot.length})`);
+            for (const r of cannot.slice(0, 12)) L.push(`      ${r.short}  ${r.subject.slice(0, 80)}`);
+            L.push('');
+        }
     }
     const why = new Map();
     for (const c of allCases.filter(c => c.verdict === INCONCLUSIVE)) {
