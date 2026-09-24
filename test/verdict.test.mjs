@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { classify, reduceRuns, rollUp, isDisagreement, CAUGHT, BLIND, NON_DISCRIMINATING, INCONCLUSIVE, FLAKY, SKIPPED } from '../src/verdict.mjs';
 
 const pass = { status: 'pass' };
-const assertFail = { status: 'fail', code: 'ERR_ASSERTION', errorName: 'AssertionError', message: '"CERT OF TITLE-PRIOR-SALVAGE" resolved to Salvage' };
+const assertFail = { status: 'fail', code: 'ERR_ASSERTION', errorName: 'AssertionError', message: "expected 1, got 2" };
 const errFail = { status: 'fail', code: 'ERR_TEST_FAILURE', errorName: 'SyntaxError', message: "does not provide an export named 'TITLE_SEPARATOR'" };
 
 test('CAUGHT: green on the fix, assertion-red on the parent', () => {
@@ -93,4 +93,21 @@ test('CONTROL ARM: a verdict engine that only read exit codes fails these', () =
     assert.equal(classify({ armA: pass, armB: errFail }).verdict, INCONCLUSIVE);  // ...we say no
     assert.equal(naive({ armB: pass }), BLIND);   // and calls every regression guard blind                            // and it cannot see
     assert.equal(classify({ armA: pass, armB: pass, identity: { proven: false, reason: 'x' } }).verdict, INCONCLUSIVE);
+});
+
+test('a CAUGHT on new code is still CAUGHT — the verdict does not lie, the CLAIM narrows', async () => {
+    // Issue #3. On a feature the base lacks the code entirely, so essentially any test
+    // touching it fails there — `expected 0 to be greater than 0` is a real AssertionError
+    // that says nothing about whether the test is well aimed. Reclassifying it would be
+    // dishonest (it IS a disagreement); counting it as evidence would be worse.
+    const { commitKind } = await import('../src/verify.mjs');
+
+    assert.equal(commitKind('feat(web): add seoTitle', false).newCode, true,
+        'a feature is new code whatever its diff looks like');
+    assert.equal(commitKind('fix(core): a hyphen decided a title', false).newCode, false,
+        'a fix that changes lines is a repair, and its CAUGHT is strong evidence');
+    assert.equal(commitKind('fix(api): add a missing export', true).newCode, true,
+        'a fix whose source diff only ADDS may still be reading something that was absent');
+    assert.equal(commitKind('no conventional prefix at all', false).kind, 'unknown',
+        'an unrecognised subject must not be guessed into fix or feature');
 });

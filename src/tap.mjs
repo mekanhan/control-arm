@@ -55,7 +55,7 @@ export function parseTap(stdout) {
         else if ((m = line.match(/^\s*name:\s*'?([^'\n]+)'?\s*$/))) current.errorName = m[1].trim();
         // `expected:` and `actual:` are the ONLY fields that say WHAT the disagreement
         // was. "Expected values to be strictly equal:" is a category, not a finding — the
-        // reader wants "expected 'Rebuilt', got 'Salvage'", and only these two carry it.
+        // reader wants "expected 1, got 2", and only these two carry it.
         else if ((m = line.match(/^\s*expected:\s*(.+?)\s*$/))) current.expected = m[1];
         else if ((m = line.match(/^\s*actual:\s*(.+?)\s*$/))) current.actual = m[1];
         else if ((m = line.match(/^\s*error:\s*'([^']*)'\s*$/))) current.message = m[1].trim();

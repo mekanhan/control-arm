@@ -24,23 +24,58 @@ export function prComment(r, { repoName = '.' } = {}) {
     const disc = r.cases.filter(c => c.verdict === 'CAUGHT');
     const inc = r.cases.filter(c => c.verdict === 'INCONCLUSIVE');
     const L = [];
-    L.push(`### \`control-arm\` — ${r.verdict === 'CAUGHT' ? 'this branch is proven' : r.verdict}`);
+    const head = r.verdict !== 'CAUGHT' ? r.verdict
+        : r.newCode ? 'new code — these tests cannot be judged this way'
+        : 'this branch is proven';
+    L.push(`### \`control-arm\` — ${head}`);
     L.push('');
-    L.push(disc.length
-        ? `**${disc.length} of ${r.cases.length} cases cannot pass without this change.** Replayed against the merge base, they fail; on this branch they pass.`
-        : `**No case in this branch fails without the change.** Every test here is green on the code this PR is meant to fix.`);
+    if (disc.length && r.newCode) {
+        // The claim CAUGHT is allowed to make depends on whether there was a bug. On new
+        // code the base lacks the thing entirely, so essentially any test touching it
+        // fails there. Saying "cannot pass without this change" would be true and
+        // worthless — it restates that the code is new.
+        L.push(`**${disc.length} of ${r.cases.length} tests fail without this change** — but this ${r.kind === 'feature' ? 'is a feature' : 'commit only adds code'}, so the base does not have it at all.`);
+        L.push('');
+        L.push(`That is expected, and it is weak evidence: on new code almost any test that reads the new thing fails on the base, whether or not it is well aimed. A test asserting \`1 === 1\` in the same file would NOT show up here; one that merely reads the new field would.`);
+    } else L.push(disc.length
+        ? `**${disc.length} of ${r.cases.length} tests here genuinely catch this change.** Run against the code as it was before this PR, they fail; with the change, they pass.`
+        : `**No test here fails without this change.** Every test in this PR is already green on the code it is meant to fix — so none of them would have caught it.`);
     L.push('');
-    L.push('| | case | on the base |');
+    // PLAIN WORDS IN THE TABLE HEAD. "case" means "test" to almost nobody outside
+    // testing, and "the base" is version-control jargon used as a bare column header.
+    // The reader of a PR comment is usually the author, mid-review, not a specialist.
+    L.push('| | test | what it did on the code WITHOUT this change |');
     L.push('|---|---|---|');
     for (const c of r.cases) {
-        const why = c.verdict === 'CAUGHT' ? (c.reason || '').replace(/\s+/g, ' ').slice(0, 90)
-                  : c.verdict === 'INCONCLUSIVE' ? `_${(c.reason || '').replace(/\s+/g, ' ').slice(0, 90)}_`
-                  : '_green on both — a regression guard looks like this too_';
+        const why = c.verdict === 'CAUGHT'
+            ? `**failed** — ${(c.reason || '').replace(/\s+/g, ' ').slice(0, 84)}`
+            : c.verdict === 'INCONCLUSIVE'
+            ? `_could not run there — ${(c.reason || '').replace(/\s+/g, ' ').slice(0, 74)}_`
+            : c.verdict === 'SKIPPED' ? '_skipped by the test runner_'
+            : c.verdict === 'FLAKY' ? '_different answers on repeated runs — trust neither_'
+            : '_passed too — so it is not what catches this bug. Often deliberate: a test that guards something else._';
         L.push(`| ${G[c.verdict] || '·'} | ${c.name.replace(/\|/g, '\\|').slice(0, 96)} | ${why.replace(/\|/g, '\\|')} |`);
     }
     L.push('');
-    if (inc.length) L.push(`> ⚠️ ${inc.length} case${inc.length > 1 ? 's' : ''} **errored rather than asserted** on the base, so ${inc.length > 1 ? 'they' : 'it'} cannot be attributed. A case that throws still shows red, which reads as proof when it is not.`);
+    if (inc.length) {
+        // The single most important idea in the tool, and previously its most opaque
+        // sentence. Say the mechanism, not the category.
+        L.push(`> ⚠️ **${inc.length} test${inc.length > 1 ? 's' : ''} could not run at all** on the older code — ${inc.length > 1 ? 'they' : 'it'} crashed instead of disagreeing (a missing import, usually).`);
+        L.push('>');
+        L.push('> That still shows up red, which looks like proof but is not: a test that never executed cannot tell you whether it would have caught anything.');
+    }
     L.push('');
-    L.push(`<sub>\`ca verify ${r.short} --against <base> --repo ${repoName}\` · module identity verified</sub>`);
+    L.push('<details><summary>What this check does</summary>');
+    L.push('');
+    L.push('It takes the tests in this PR and runs them against the code **as it was before your change**.');
+    L.push('');
+    L.push('- ✅ **failed there** — the test genuinely catches this. It would have gone red on the old code.');
+    L.push('- ⚪️ **passed there too** — this test is not what catches this change. That is often correct: a test guarding something else *should* stay green.');
+    L.push('- ⚠️ **could not run there** — it crashed rather than disagreeing, so it proves nothing either way.');
+    L.push('');
+    L.push('A green test suite cannot tell these apart. That is the whole point of the check.');
+    L.push('</details>');
+    L.push('');
+    L.push(`<sub>\`ca verify ${r.short} --against <base> --repo ${repoName}\` · verified it loaded the old code, not the new</sub>`);
     return L.join('\n');
 }

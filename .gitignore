@@ -4,3 +4,6 @@ fixtures/.build/
 .ca-work/
 *.log
 audit-*.csv
+report.html
+audit-*.csv
+audit-*.log

@@ -90,6 +90,47 @@ const TEST_SUFFIX_RE = /\.(test|spec)\.(m?[jt]sx?)$/i;
 const CODE_RE = /\.(m?[jt]sx?)$/i;
 const TEST_RE = (f) => CODE_RE.test(f) && (TEST_SUFFIX_RE.test(f) || TEST_DIR_RE.test(f));
 
+/**
+ * IS THIS A REPAIR, OR IS IT NEW CODE? — and why the answer changes what CAUGHT means.
+ *
+ * On a BUG FIX the base is the broken code, so a test that fails there genuinely
+ * discriminates: it would have caught the bug. That is the case this tool was built for.
+ *
+ * On a FEATURE the base is code where the thing does not exist yet. Essentially ANY test
+ * touching the new code fails there — the import is missing, the field is absent, a count
+ * is zero. `expected 0 to be greater than 0` is a real AssertionError, correctly
+ * classified, and says nothing whatever about whether the test is well aimed. A test
+ * asserting `expect(1).toBe(1)` in the same file would NOT have been CAUGHT; essentially
+ * any test reading the new field would. The signal comes from the field's existence, not
+ * from the test's design.
+ *
+ * This is the mirror of the INCONCLUSIVE rule. That one says a red test that never RAN
+ * proves nothing; this one says a red test that ran against ABSENT CODE proves nearly as
+ * little. Counting them together lets the headline drift upward for free on a
+ * feature-heavy week, and a number that drifts for free is one people stop reading.
+ *
+ * MEASURED, because both signals are proxies and only one is any good:
+ *   conventional prefix   1,213 fix / 988 feat in one real corpus — used consistently
+ *   source additions-only  9 of 28 feat commits, but also 1 of 35 fix commits —
+ *                          specific, not sensitive; a supporting hint, never the verdict
+ *
+ * So this labels the CLAIM and never silently reclassifies a verdict. CAUGHT on a feature
+ * is still CAUGHT — it just does not get to say "this would have caught the bug", because
+ * there was no bug.
+ */
+export function commitKind(subject, sourceAddedOnly) {
+    const m = String(subject).match(/^\s*([a-z]+)\s*(\([^)]*\))?\s*!?:/i);
+    const prefix = m ? m[1].toLowerCase() : null;
+    if (prefix === 'fix' || prefix === 'bug' || prefix === 'perf') {
+        // A fix that only ADDED source is worth flagging: its test may be reading
+        // something that simply was not there, exactly like a feature's.
+        return { kind: 'fix', newCode: !!sourceAddedOnly, prefix };
+    }
+    if (prefix === 'feat' || prefix === 'feature') return { kind: 'feature', newCode: true, prefix };
+    if (prefix) return { kind: 'other', newCode: !!sourceAddedOnly, prefix };
+    return { kind: 'unknown', newCode: !!sourceAddedOnly, prefix: null };
+}
+
 export async function commitInfo(repo, sha, against = null) {
     const out = await git(repo, ['show', '--no-patch', '--format=%H%n%s%n%ad', '--date=short', sha]);
     const [full, subject, date] = out.trim().split('\n');
@@ -98,8 +139,24 @@ export async function commitInfo(repo, sha, against = null) {
     const files = against
         ? (await git(repo, ['diff', '--name-only', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`])).trim().split('\n').filter(Boolean)
         : (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean);
+    // Deletions in non-test source: a repair usually changes lines, new code only adds.
+    const numstat = against
+        ? await git(repo, ['diff', '--numstat', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`])
+        : await git(repo, ['show', '--numstat', '--format=', sha]);
+    let srcDeletions = 0;
+    for (const line of numstat.trim().split('\n')) {
+        const [, del, file] = line.split(/\t/).length === 3 ? ['', ...line.split(/\t/).slice(1)] : [];
+        const parts = line.split(/\t/);
+        if (parts.length !== 3) continue;
+        const [, d, f] = parts;
+        if (TEST_RE(f) || DOC_RE.test(f)) continue;
+        if (/^\d+$/.test(d)) srcDeletions += Number(d);
+    }
+    const kindInfo = commitKind(subject, srcDeletions === 0);
+
     return {
         sha: full, short: full.slice(0, 8), subject, date,
+        ...kindInfo, srcDeletions,
         files,
         testFiles: files.filter(f => TEST_RE(f)),
         sourceFiles: files.filter(f => !TEST_RE(f) && !DOC_RE.test(f)),

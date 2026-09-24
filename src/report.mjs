@@ -69,13 +69,20 @@ export function renderVerify(r) {
         L.push(`  ${m} — ${r.stillOpen.reason}`);
         L.push('');
     }
-    const plain = r.verdict === CAUGHT
+    // WHAT CAUGHT IS ALLOWED TO CLAIM depends on whether there was a bug to catch.
+    // On new code the base lacks the thing entirely, so a failing test there is expected
+    // rather than evidence. Same verdict, a much weaker sentence.
+    const plain = r.verdict === CAUGHT && r.newCode
+        ? `${n(CAUGHT)} test${n(CAUGHT) === 1 ? ' fails' : 's fail'} on the base — but this commit ADDS code, so the base lacks it entirely. That is expected, not evidence the tests are well aimed.`
+        : r.verdict === CAUGHT
         ? `${n(CAUGHT)} test${n(CAUGHT) === 1 ? '' : 's'} here would have caught this bug. The rest are guards or could not run.`
         : r.verdict === BLIND
         ? `NOTHING here would have caught this bug — every test is green on the broken code.`
         : r.verdict === FLAKY ? `A test gave different answers on repeated runs. Do not trust either.`
         : `Could not judge this commit. See the reason above — it is not a pass or a fail.`;
-    L.push(`  VERDICT  ${GLYPH[r.verdict] ?? ''} ${r.verdict}`);
+    const qualifier = r.verdict === CAUGHT && r.newCode
+        ? `  (${r.kind === 'feature' ? 'a feature' : 'adds code, no source deletions'} — weak evidence)` : '';
+    L.push(`  VERDICT  ${GLYPH[r.verdict] ?? ''} ${r.verdict}${qualifier}`);
     L.push(`           ${plain}`);
     L.push(`           ${n(CAUGHT)} catch it · ${n(NON_DISCRIMINATING)} green either way · ${n(FLAKY)} flaky · ${n(INCONCLUSIVE)} could not run`);
     L.push('');
@@ -116,11 +123,21 @@ export function renderAudit(results, meta) {
         L.push(`    ${(GLYPH[v] + ' ' + v).padEnd(16)} ${bar(c, allCases.length)} ${String(c).padStart(4)}  ${((c / Math.max(allCases.length, 1)) * 100).toFixed(1).padStart(5)}%`);
     }
 
-    const decided = commitTally[CAUGHT] + commitTally[BLIND];
+    const strongCaught = results.filter(r => r.verdict === CAUGHT && !r.newCode).length;
+    const decided = strongCaught + commitTally[BLIND];
     L.push('');
+    // NEW CODE IS NOT EVIDENCE. A feature's base lacks the thing entirely, so essentially
+    // any test touching it fails there. Counting those in the headline lets the number
+    // drift upward for free on a feature-heavy sample.
+    const newCodeCaught = results.filter(r => r.verdict === CAUGHT && r.newCode).length;
+    if (newCodeCaught) {
+        L.push(`  ${newCodeCaught} CAUGHT commit(s) only ADD code — the base lacks it entirely, so a failing`);
+        L.push('  test there is expected rather than evidence. Excluded from the ratio below.');
+        L.push('');
+    }
     L.push('  THE NUMBER THAT MATTERS');
     L.push(`    Of ${decided} commits where the instrument could answer at all,`);
-    L.push(`    ${commitTally[CAUGHT]} shipped a test that would have caught the bug — ${decided ? ((commitTally[CAUGHT] / decided) * 100).toFixed(1) : '—'}%`);
+    L.push(`    ${strongCaught} shipped a test that would have caught the bug — ${decided ? ((strongCaught / decided) * 100).toFixed(1) : '—'}%`);
     L.push(`    ${commitTally[BLIND]} shipped a test that was green on the broken code — ${decided ? ((commitTally[BLIND] / decided) * 100).toFixed(1) : '—'}%`);
     L.push(`    ${commitTally[INCONCLUSIVE]} could not be judged, and are excluded from that ratio rather than assumed.`);
     L.push('');

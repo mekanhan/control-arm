@@ -4,9 +4,12 @@ name: 'control-arm'
 description: 'Prove the tests in this PR fail without it'
 inputs:
   base:
-    description: 'Branch this PR targets. The comparison uses the MERGE BASE with it, never its tip.'
+    description: >-
+      Branch this PR targets. The comparison uses the MERGE BASE with it, never its tip.
+      Defaults to `main`; set it explicitly if your project integrates somewhere else
+      (`develop`, `trunk`, a release branch).
     required: false
-    default: 'develop'
+    default: 'main'
   comment:
     description: 'Post the result as a PR comment. Needs pull-requests:write and GH_TOKEN.'
     required: false

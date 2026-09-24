@@ -18,16 +18,20 @@ happened.
 
 ```js
 // A
-assert.equal(titleBrand('CERT OF TITLE-PRIOR-SALVAGE'), 'Rebuilt');
+assert.equal(priority('HIGH-PRIORITY'), 1);
 
 // B
-const b = titleBrand('CERT OF TITLE-PRIOR-SALVAGE');
-assert.ok(b);            // any string is truthy
-assert.ok(MULT[b] > 0);  // 40 > 0 is true
+const p = priority('HIGH-PRIORITY');
+assert.ok(p);                 // any number but 0 is truthy
+assert.ok(SLA_HOURS[p] > 0);  // 24 > 0 is true
 ```
 
-On the fixed code both pass. On the broken code **A fails and B still passes.** In CI they
-are identical — two green checkmarks. That is the gap.
+The bug: `priority()` matched `HIGH PRIORITY` with a space but not `HIGH-PRIORITY`
+with a hyphen, so an urgent ticket came back as normal.
+
+On the fixed code both pass. On the broken code **A fails and B still passes** — because
+the wrong answer, 2, is also truthy and also has a positive SLA. In CI they are identical:
+two green checkmarks. That is the gap.
 
 ### "My tests are all green. So what happens?"
 
