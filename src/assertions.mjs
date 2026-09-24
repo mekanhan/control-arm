@@ -116,7 +116,12 @@ export function extractCase(source, caseName) {
     const words = String(caseName).split(/\s+/);
     for (let start = 0; start < words.length; start++) {
         const candidate = words.slice(start).join(' ');
-        if (candidate.length < 8) break;
+        // The length floor guards against an AMBIGUOUS SUFFIX resolving to an arbitrary
+        // case ("returns null" could name three tests in one file). It must NOT apply to
+        // the full name: a test legitimately called `p is 1` is six characters, and
+        // refusing it made every short-named case unfindable. Found by a unit test whose
+        // own fixture had a short name — the floor silently rejected it.
+        if (start > 0 && candidate.length < 8) break;
         const body = extractExact(source, candidate);
         if (body != null) return body;
     }
@@ -285,9 +290,19 @@ function fileScopeStubs(source) {
     }
     for (const m of source.matchAll(/^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/gm)) {
         const name = m[1];
-        // Same module imported for OTHER symbols? Then this name is very likely the unit.
-        const sameModule = new RegExp(`from\\s*['"][^'"]*${name}[^'"]*['"]`, 'i').test(source);
-        if (imported.has(name) || sameModule) {
+        // FALSE POSITIVE FOUND ON A REAL RUN. This used to substring-match the name against
+        // every import path, so a two-letter helper named `at` matched `@acme/core` —
+        // because the word "acme" contains "at" — and every case in that file was reported
+        // as testing a stub. A wrong explanation is worse than none: it sends the reader to
+        // look at code that is fine.
+        //
+        // Now: the name must be either an EXACT imported binding, or the BASENAME of an
+        // imported module (`import … from '../src/priority.mjs'` for a stub named
+        // `priority`). And never a name under three characters, where any rule is a guess.
+        if (name.length < 3) continue;
+        const basenameMatch = [...source.matchAll(/from\s*['"]([^'"]+)['"]/g)]
+            .some(im => im[1].split('/').pop().replace(/\.[mc]?[jt]sx?$/, '') === name);
+        if (imported.has(name) || basenameMatch) {
             out.push({
                 id: 'stubbed-subject', severity: 'weak',
                 note: `\`${name}\` is redefined as a local stub at file scope — the real \`${name}\` is never called, so this case passes whatever the shipped code does`,

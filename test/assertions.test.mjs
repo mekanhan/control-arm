@@ -88,3 +88,30 @@ test('the analyser reports UNKNOWN rather than a clean bill when it cannot tell'
     const r = analyseCase(`it('odd', () => { somethingEntirelyUnrecognised(); });`, 'odd');
     assert.notEqual(r.verdict, 'strong', 'an unrecognised body must never read as strong');
 });
+
+test('a short helper name must not be accused of stubbing the unit under test', () => {
+    // FOUND ON A REAL RUN. The stub check substring-matched the name against every import
+    // path, so a two-letter helper `at` matched '@acme/core' — "acme" contains "at" — and
+    // every case in that file was reported as testing a stub. A wrong explanation is worse
+    // than none: it sends the reader to look at code that is fine.
+    const src = `
+import { computeTier } from '@acme/core/tiers.js';
+const at = (arr, i) => arr[i];
+it('TIER-001: the tier changes the money', () => {
+    assert.equal(at(computeTier(x), 0), 1200);
+});`;
+    const r = analyseCase(src, 'TIER-001: the tier changes the money');
+    assert.ok(!r.findings.some(f => f.id === 'stubbed-subject'),
+        'a local helper whose name merely appears inside an import path is not a stub');
+});
+
+test('a REAL stub is still caught — the tightening must not blind the check', () => {
+    const src = `
+import { SLA_HOURS } from '../src/priority.mjs';
+const priority = () => 1;
+it('p is 1', () => { assert.equal(priority('HIGH-PRIORITY'), 1); });`;
+    const r = analyseCase(src, 'p is 1');
+    assert.ok(r.findings.some(f => f.id === 'stubbed-subject'),
+        'a stub matching the imported module basename must still be reported');
+    assert.equal(r.verdict, 'weak');
+});
