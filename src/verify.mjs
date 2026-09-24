@@ -13,11 +13,12 @@ import path from 'node:path';
 import { git, ensureWorktree, linkDependencies, linkEnvFiles, transplant } from './worktree.mjs';
 import { proveIdentity } from './identity.mjs';
 import { nodeTest } from './runner.mjs';
+import { analyseCase } from './assertions.mjs';
 import { vitest, jest } from './runner-json.mjs';
 import { selectRunner } from './select-runner.mjs';
 
 const RUNNERS = { node: nodeTest, vitest, jest };
-import { classify, reduceRuns, rollUp, isDisagreement, BLIND, SKIPPED, INCONCLUSIVE } from './verdict.mjs';
+import { classify, reduceRuns, rollUp, isDisagreement, BLIND, NON_DISCRIMINATING, SKIPPED, INCONCLUSIVE } from './verdict.mjs';
 
 /**
  * Documentation, and nothing else, is "not source".
@@ -168,6 +169,15 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
     }
 
     // --- verdicts ----------------------------------------------------------------------
+    // The fix's own copy of each test file, read ONCE per file rather than once per case:
+    // the assertion analysis needs the source, and a 40-case file would otherwise re-read
+    // it forty times.
+    const sourceOf = new Map();
+    for (const f of perFile) {
+        if (f.skip) continue;
+        try { sourceOf.set(f.file, await git(repo, ['show', `${sha}:${f.file}`])); } catch { /* unreadable */ }
+    }
+
     for (const f of perFile) {
         if (f.skip) { result.cases.push({ file: f.file, name: '(file)', verdict: INCONCLUSIVE, reason: f.skip }); continue; }
         for (const aCase of f.armA.cases) {
@@ -177,7 +187,19 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
                 return classify({ armA: aCase, armB: bCase, identity });
             });
             const final = reduceRuns(perRun);
-            result.cases.push({ file: f.file, name: aCase.name, ...final });
+            // WHY is this case weak — attached only where the answer is useful. A CAUGHT
+            // case needs no explanation (it did its job) and an INCONCLUSIVE one already
+            // carries its reason, so the note goes on the cases a reader would otherwise
+            // have to open the file to understand.
+            let why = null;
+            const src = sourceOf.get(f.file);
+            if (src && final.verdict === NON_DISCRIMINATING) {
+                const a = analyseCase(src, aCase.name);
+                if (a.verdict === 'weak' && a.findings.length) why = a.findings[0].note;
+                else if (a.verdict === 'suspect' && a.findings.length) why = `${a.findings[0].note} — but it also asserts an exact value, so it may still be sound`;
+                else if (a.verdict === 'strong') why = 'asserts an exact expected value — most likely a deliberate regression guard';
+            }
+            result.cases.push({ file: f.file, name: aCase.name, ...final, ...(why ? { why } : {}) });
         }
     }
     result.verdict = rollUp(result.cases);

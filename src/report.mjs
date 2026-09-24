@@ -36,7 +36,10 @@ export function renderVerify(r) {
         for (const c of cases) {
             const label = c.verdict === CAUGHT ? 'DISCRIMINATES' : c.verdict === NON_DISCRIMINATING ? 'no-discrim.  ' : c.verdict === FLAKY ? 'FLAKY        ' : c.verdict === SKIPPED ? 'skip         ' : 'INCONCLUSIVE ';
             L.push(`    ${GLYPH[c.verdict]} ${label} ${c.name}`);
-            if (c.reason && c.verdict !== SKIPPED) L.push(`              └ ${String(c.reason).replace(/\s+/g, ' ').slice(0, 150)}`);
+            // The assertion note, where there is one, says something the generic reason
+            // cannot: WHY this case could not have caught the bug. Prefer it.
+            const detail = c.why || c.reason;
+            if (detail && c.verdict !== SKIPPED) L.push(`              └ ${String(detail).replace(/\s+/g, ' ').slice(0, 160)}`);
         }
         L.push('');
     }

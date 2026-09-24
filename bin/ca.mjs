@@ -159,10 +159,10 @@ async function audit() {
     const out = flag('out');
     if (out) {
         const esc = v => `"${String(v ?? '').replace(/"/g, '""').replace(/\s+/g, ' ').slice(0, 400)}"`;
-        const rows = [['sha', 'date', 'subject', 'commit_verdict', 'file', 'case', 'case_verdict', 'reason'].join(',')];
+        const rows = [['sha', 'date', 'subject', 'commit_verdict', 'file', 'case', 'case_verdict', 'reason', 'why_weak'].join(',')];
         for (const r of results) {
             if (!r.cases.length) rows.push([r.sha, r.date, esc(r.subject), r.verdict, '', '', r.verdict, esc(r.note)].join(','));
-            for (const c of r.cases) rows.push([r.sha, r.date, esc(r.subject), r.verdict, esc(c.file), esc(c.name), c.verdict, esc(c.reason)].join(','));
+            for (const c of r.cases) rows.push([r.sha, r.date, esc(r.subject), r.verdict, esc(c.file), esc(c.name), c.verdict, esc(c.reason), esc(c.why)].join(','));
         }
         await writeFile(path.resolve(out), rows.join('\n'));
         console.log(`  full per-case results: ${path.resolve(out)}  (${rows.length - 1} rows)\n`);
