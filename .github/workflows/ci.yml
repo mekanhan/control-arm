@@ -1,0 +1,68 @@
+# The tool that asks whether your tests can fail, running its own.
+#
+# It shipped for a day without this. That is the defect it exists to find, one level up:
+# a suite that is never executed by anything but its author's terminal is not a gate, and
+# "46/46 green" meant "green on one laptop, when I remembered".
+#
+# GitHub-hosted runners on purpose: control-arm has no dependencies and must work on a
+# stock box. Pinning it to a self-hosted fleet would hide exactly the assumptions —
+# a preinstalled binary, a warm cache, a particular git version — that break for the
+# first stranger who clones it.
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 is the oldest LTS with a stable node:test reporter API, which the TAP parser
+        # depends on. 24 is what it is developed against. A break in either is worth knowing.
+        node: ['20', '22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Unit + fixtures
+        run: node --test --test-concurrency=1 test/*.test.mjs
+
+      # DOGFOOD. The fixtures prove the verdicts on repos built to have known answers.
+      # This proves the whole two-arm machinery works on a REAL history with real commits,
+      # worktrees and module resolution — which is where every bug so far has come from.
+      - name: Judge its own history
+        run: |
+          set -euo pipefail
+          git config --global user.email ci@control-arm
+          git config --global user.name ci
+
+          OUT=$(node bin/ca.mjs verify 1845c1d3 --repo "$GITHUB_WORKSPACE" --timeout 120000)
+          echo "$OUT"
+
+          # That commit added the rule "a SKIPPED case blocks BLIND", with a test written
+          # for it. If the tool cannot still see that test discriminate, the tool is broken
+          # — regardless of what its unit suite says.
+          echo "$OUT" | grep -q 'VERDICT  CAUGHT' \
+            || { echo "::error::control-arm no longer judges its own fix correctly"; exit 1; }
+          echo "$OUT" | grep -q 'module identity verified' \
+            || { echo "::error::module identity was not proven — a verdict here is not trustworthy"; exit 1; }
+
+      - name: Determinism
+        run: |
+          set -euo pipefail
+          A=$(node bin/ca.mjs verify 1845c1d3 --repo "$GITHUB_WORKSPACE" --work /tmp/d1 --timeout 120000 | tail -14)
+          B=$(node bin/ca.mjs verify 1845c1d3 --repo "$GITHUB_WORKSPACE" --work /tmp/d2 --timeout 120000 | tail -14)
+          [ "$A" = "$B" ] || { echo "::error::two runs disagreed — the tool is not deterministic"; exit 1; }
+          echo "two independent runs are byte-identical"
