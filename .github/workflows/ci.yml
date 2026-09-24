@@ -32,6 +32,12 @@ jobs:
         node: ['20', '22', '24']
     steps:
       - uses: actions/checkout@v4
+        with:
+          # FULL HISTORY, not the default shallow clone. The dogfood step verifies the tool
+          # against one of its OWN past commits, and `git show 1845c1d3` on a depth-1
+          # checkout fails with "unknown revision". Caught by this workflow's first run,
+          # which is the argument for having it.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
