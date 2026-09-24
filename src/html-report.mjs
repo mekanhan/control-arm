@@ -19,7 +19,9 @@
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 
 export function issueBody(f, repoName) {
-    return `**Found by \`control-arm\`** — the test shipped with this fix does not fail on the code it was written to catch.
+    return `### ❌ ${f.stillOpen === 'OPEN' ? '🔴 Still open' : 'Finding'} — found by \`control-arm\`
+
+The test shipped with this fix does not fail on the code it was written to catch.
 
 | | |
 |---|---|

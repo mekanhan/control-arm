@@ -11,8 +11,19 @@ import { CAUGHT, BLIND, NON_DISCRIMINATING, INCONCLUSIVE, FLAKY, SKIPPED } from 
 
 export const MARK = { ok: '✓', no: '✗', hm: '?' };
 
+/**
+ * One glyph per verdict, and they carry meaning rather than decorate.
+ *
+ * Single-width characters on purpose: an emoji is two columns wide in most terminals and
+ * silently breaks every aligned column after it. Markdown output (the PR comment, the
+ * issue body) uses emoji instead, where width does not matter and colour does.
+ *
+ * ⚠ replaced ? for INCONCLUSIVE. A question mark reads as "unknown, probably fine"; the
+ * verdict actually means "I could not run this, so do not count it either way", which is
+ * a thing the reader must notice rather than skim past.
+ */
 const GLYPH = {
-    [CAUGHT]: '✓', [BLIND]: '✗', [NON_DISCRIMINATING]: '–', [INCONCLUSIVE]: '?', [FLAKY]: '~', [SKIPPED]: '·',
+    [CAUGHT]: '✓', [BLIND]: '✗', [NON_DISCRIMINATING]: '–', [INCONCLUSIVE]: '⚠', [FLAKY]: '~', [SKIPPED]: '·',
 };
 const ORDER = [CAUGHT, BLIND, FLAKY, INCONCLUSIVE, SKIPPED];
 const CASE_ORDER = [CAUGHT, NON_DISCRIMINATING, FLAKY, INCONCLUSIVE, SKIPPED];
@@ -45,7 +56,7 @@ export function renderVerify(r) {
     }
     const n = v => r.cases.filter(c => c.verdict === v).length;
     if (r.stillOpen) {
-        const m = { repaired: '↻ REPAIRED SINCE', open: '‼ STILL OPEN TODAY', unknown: '? cannot tell' }[r.stillOpen.status];
+        const m = { repaired: '↻ REPAIRED SINCE', open: '‼ STILL OPEN TODAY', unknown: '⚠ cannot tell' }[r.stillOpen.status];
         L.push(`  ${m} — ${r.stillOpen.reason}`);
         L.push('');
     }
@@ -71,6 +82,8 @@ export function renderAudit(results, meta) {
     L.push(`     since ${meta.since} · ${meta.matched} commits matched · ${meta.eligible} judgeable · ${meta.n} drawn at random (seed ${meta.seed})`);
     L.push(`     ${(meta.seconds / 60).toFixed(1)} min · ${(meta.seconds / Math.max(meta.n, 1)).toFixed(1)}s per commit`);
     L.push('  └─────────────────────────────────────────────────────────────────────────┘');
+    L.push('');
+    L.push('  LEGEND   ✓ caught   ✗ blind   – ran, did not discriminate   ⚠ could not run   ~ flaky');
     L.push('');
     L.push('  BY COMMIT   (a commit is CAUGHT if ANY of its cases discriminates)');
     for (const v of ORDER) {
@@ -115,7 +128,7 @@ export function renderAudit(results, meta) {
             L.push('');
         }
         if (cannot.length) {
-            L.push(`  ? CANNOT TELL — the test file no longer exists, or will not run at HEAD (${cannot.length})`);
+            L.push(`  ⚠ CANNOT TELL — the test file no longer exists, or will not run at HEAD (${cannot.length})`);
             for (const r of cannot.slice(0, 12)) L.push(`      ${r.short}  ${r.subject.slice(0, 80)}`);
             L.push('');
         }
