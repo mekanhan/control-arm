@@ -54,17 +54,15 @@ runs:
         VERDICT="${VERDICT:-INCONCLUSIVE}"
         echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
 
-        # A declined commit has nothing useful to say on a PR. Writing an empty file is
-        # what makes the comment step skip cleanly rather than posting a blank.
-        if [ "$VERDICT" = "SKIPPED" ]; then
-          echo "nothing to report: $(printf '%s' "$OUT" | tail -1)"
-          : > "$RUNNER_TEMP/ca-comment.md"
-        else
-          MD=$(node "${{ github.action_path }}/bin/ca.mjs" verify "$TIP" \
-                 --against "origin/$CA_BASE" --pr-comment \
-                 --repo "$GITHUB_WORKSPACE" --timeout "$CA_TIMEOUT" 2>/dev/null) || true
-          printf '%s' "$MD" > "$RUNNER_TEMP/ca-comment.md"
-        fi
+        # `--pr-comment` returns EMPTY for a commit the tool declined to judge, and the
+        # comment step skips on an empty file. The decision is the tool's, not a shell's:
+        # scraping stdout for a VERDICT line a declined run never prints is what put
+        # "SKIPPED · no case fails without the change" onto a PR that simply has no tests.
+        MD=$(node "${{ github.action_path }}/bin/ca.mjs" verify "$TIP" \
+               --against "origin/$CA_BASE" --pr-comment \
+               --repo "$GITHUB_WORKSPACE" --timeout "$CA_TIMEOUT" 2>/dev/null) || true
+        printf '%s' "$MD" > "$RUNNER_TEMP/ca-comment.md"
+        [ -s "$RUNNER_TEMP/ca-comment.md" ] || echo "declined — nothing to post: $(printf '%s' "$OUT" | tail -1)"
 
     - shell: bash
       if: inputs.comment == 'true' && github.event_name == 'pull_request'

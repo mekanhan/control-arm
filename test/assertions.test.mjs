@@ -115,3 +115,16 @@ it('p is 1', () => { assert.equal(priority('HIGH-PRIORITY'), 1); });`;
         'a stub matching the imported module basename must still be reported');
     assert.equal(r.verdict, 'weak');
 });
+
+test('a declined commit produces NO pr comment — silence, not an accusation', async () => {
+    // It briefly posted "SKIPPED · No case in this branch fails without the change" onto a
+    // workflow-only PR. Technically true and completely misleading: that PR has no tests,
+    // so of course none discriminate. A comment reading as an accusation on a PR doing
+    // nothing wrong is worse than no comment.
+    const { prComment } = await import('../src/markdown-report.mjs');
+    const declined = { short: 'abc12345', verdict: 'SKIPPED', cases: [], note: 'no test file in the commit' };
+    assert.equal(prComment(declined), '', 'a noted (declined) result must render as empty');
+
+    const real = { short: 'abc12345', verdict: 'CAUGHT', cases: [{ verdict: 'CAUGHT', name: 'x', reason: 'y' }] };
+    assert.notEqual(prComment(real), '', 'a real verdict must still render');
+});
