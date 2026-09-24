@@ -123,18 +123,138 @@ export function extractCase(source, caseName) {
     return null;
 }
 
-function extractExact(source, caseName) {
-    const esc = caseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const head = new RegExp(`\\b(?:test|it)\\s*\\(\\s*(['"\`])${esc}\\1`);
-    const m = source.match(head);
-    if (!m) return null;
-    let i = source.indexOf('{', m.index + m[0].length);
-    if (i === -1) return null;
-    let depth = 0, start = i;
-    for (; i < source.length; i++) {
-        const c = source[i];
+/**
+ * Find a case by title and return its body — by SCANNING, not by regex.
+ *
+ * Two things a regex got wrong on real files, both measured:
+ *
+ * 1. ESCAPED QUOTES. `it('METER-038: usage on the user\'s LOCAL today is counted')` is
+ *    reported by the runner as `...the user's LOCAL today...`, with the backslash gone.
+ *    A regex matching `(['"`])<name>\1` never matches, because the source holds `\'`
+ *    where the name holds `'`. So: parse the literal properly and UNESCAPE it before
+ *    comparing.
+ *
+ * 2. BRACES INSIDE STRINGS. Counting `{` and `}` literally unbalances on a body
+ *    containing `'{'`, a regex like /[{]/, a template literal, or a comment with a brace
+ *    in it — and then the body is reported as not found. So: skip strings, template
+ *    literals, comments and regex literals while matching.
+ *
+ * Together these were the whole of the remaining "could not analyse" pile.
+ */
+function unescapeLiteral(raw) {
+    return raw.replace(/\\(['"`\\nrt])/g, (_, c) => ({ n: '\n', r: '\r', t: '\t' }[c] ?? c));
+}
+
+/** Read a quoted literal starting at `i` (which must be the quote). Returns {text, end}. */
+function readLiteral(src, i) {
+    const q = src[i];
+    let out = '';
+    for (let j = i + 1; j < src.length; j++) {
+        const c = src[j];
+        if (c === '\\') { out += c + (src[j + 1] ?? ''); j++; continue; }
+        if (c === q) return { text: unescapeLiteral(out), raw: out, tmpl: q === '`', end: j };
+        if (c === '\n' && q !== '`') return null;   // unterminated: not a title
+        out += c;
+    }
+    return null;
+}
+
+/**
+ * Walk from `open` (a `{`) to its matching `}`, ignoring braces that are not code.
+ * Regex detection is the approximate part: a `/` is treated as starting a regex only
+ * when the previous non-space character cannot end an expression. That is the standard
+ * heuristic and it is wrong only for exotic code; when it is wrong the scan fails closed
+ * and the case reports as not analysed, never as a wrong body.
+ */
+function matchBrace(src, open) {
+    let depth = 0;
+    let prev = '';
+    for (let i = open; i < src.length; i++) {
+        const c = src[i];
+        if (c === '/' && src[i + 1] === '/') { i = src.indexOf('\n', i); if (i === -1) return -1; continue; }
+        if (c === '/' && src[i + 1] === '*') { i = src.indexOf('*/', i + 2); if (i === -1) return -1; i++; continue; }
+        if (c === '"' || c === "'" || c === '`') {
+            const lit = readLiteral(src, i);
+            if (!lit) return -1;
+            i = lit.end;
+            prev = c;
+            continue;
+        }
+        // REGEX DETECTION, deliberately narrow. The usual heuristic — "a slash after
+        // anything that cannot end an expression starts a regex" — is WRONG on JSX: in
+        // `</div>` the slash follows `<`, so the scan treats the rest of the component as
+        // a regex literal and the body is never found. Measured: every .tsx case in the
+        // corpus failed this way. So require the previous character to be one of a small
+        // set of operators that really can precede a regex, and never `<`.
+        if (c === '/' && REGEX_PREV.has(prev) && !'/*>='.includes(src[i + 1] ?? '')) {
+            // regex literal: run to the unescaped closing slash
+            let j = i + 1, inClass = false;
+            for (; j < src.length; j++) {
+                const d = src[j];
+                if (d === '\\') { j++; continue; }
+                if (d === '[') inClass = true;
+                else if (d === ']') inClass = false;
+                else if (d === '/' && !inClass) break;
+                else if (d === '\n') return -1;
+            }
+            i = j;
+            prev = '/';
+            continue;
+        }
         if (c === '{') depth++;
-        else if (c === '}') { depth--; if (depth === 0) return source.slice(start + 1, i); }
+        else if (c === '}') { depth--; if (depth === 0) return i; }
+        if (!/\s/.test(c)) prev = c;
+    }
+    return -1;
+}
+
+/** Characters after which a `/` genuinely begins a regex literal. `<` is NOT one. */
+const REGEX_PREV = new Set(['=', '(', ',', '[', ':', '!', '&', '|', '?', '{', ';', '+', '-', '*', '%', '^', '~', 'return'.slice(-1)]);
+
+const CALL = /\b(?:test|it)(?:\.\w+)?\s*\(\s*(?=['"`])/g;
+
+/**
+ * Does this source title name the case the runner reported?
+ *
+ * Exact for a plain string. For a TEMPLATE LITERAL WITH INTERPOLATION it cannot be exact,
+ * because the runtime name contains a value the source does not:
+ *
+ *     for (const rel of PUBLIC_PAGES) {
+ *       it(`${rel}: no docs/(planning|LEGAL|spec|marketing) reference`, …)
+ *
+ *     reported as:  "app/page.tsx: no docs/(planning|LEGAL|spec|marketing) reference"
+ *
+ * Every parameterised test has this shape, and there were 30-odd of them in one file
+ * alone. So each `${…}` becomes a non-greedy wildcard and the rest is matched literally.
+ *
+ * All N generated cases resolve to the SAME body, which is correct: they share one. The
+ * assertion analysis is therefore about the shared body, which is the thing worth reading.
+ */
+function titleMatches(lit, caseName) {
+    if (lit.text === caseName) return true;
+    if (!lit.tmpl || !lit.raw.includes('${')) return false;
+    const pattern = lit.raw
+        .split(/\$\{[^}]*\}/)
+        .map(part => unescapeLiteral(part).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('[\\s\\S]*?');
+    try { return new RegExp('^' + pattern + '$').test(caseName); } catch { return false; }
+}
+
+function extractExact(source, caseName) {
+    CALL.lastIndex = 0;
+    let m;
+    while ((m = CALL.exec(source)) !== null) {
+        const qi = m.index + m[0].length;
+        const lit = readLiteral(source, qi);
+        if (!lit) continue;
+        if (!titleMatches(lit, caseName)) continue;
+        const open = source.indexOf('{', lit.end);
+        if (open === -1) continue;
+        const close = matchBrace(source, open);
+        // A failed brace scan on ONE site must not abandon the search — a later site may
+        // carry the same title and scan cleanly. Fail closed per site, not per file.
+        if (close === -1) continue;
+        return source.slice(open + 1, close);
     }
     return null;
 }
