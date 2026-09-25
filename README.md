@@ -202,7 +202,7 @@ It does not care what *kind* of test it is, only whether the runner can execute 
 | backend / server logic | yes | same runner, same rewind |
 | database-backed tests | yes | needs a live DB, else they report `SKIPPED` |
 | component tests (React / RN) | yes | via vitest and jest |
-| browser e2e (Playwright) | **no** | no Playwright runner yet |
+| browser e2e (Playwright) | **no** | no Playwright runner — but it is detected and **declined by name**, so you get "no playwright runner" rather than a confusing failure |
 | performance / load | **no** | they measure speed, not correctness |
 | manual QA | **no** | nothing to execute |
 
