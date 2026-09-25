@@ -139,6 +139,39 @@ test('label parsing / separator handling', () => {
         why: 'the fix shipped no test at all',
         test: null,
     },
+    '11-caught-via-added-file': {
+        expect: 'CAUGHT',
+        why: 'the test imports a file the fix ADDED — arm B could not even link before',
+        // The shape behind 39 of the 82 INCONCLUSIVE commits in the 300-commit audit: a fix
+        // that adds a helper AND repairs behaviour, with a test that imports the helper.
+        // The helper goes onto the parent (it cannot un-break anything — it did not exist);
+        // the repair does not, so the bug is still there for the test to find.
+        addedFile: { path: 'src/labels.mjs', content: `export const CANON = (s) => String(s).trim().toUpperCase();\n` },
+        test: `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { priority } from '../src/priority.mjs';
+import { CANON } from '../src/labels.mjs';
+test('a canonicalised HIGH-PRIORITY label is priority 1', () => {
+    assert.equal(priority(CANON(' high-priority ')), 1);
+});`,
+    },
+    '12-inconclusive-newcode-test': {
+        expect: 'INCONCLUSIVE',
+        why: 'arm B only links because of an ADDED file, and the test never names what changed — a new-code test, not a blind one',
+        // The guard on the above. Same commit shape, but the test exercises ONLY the new
+        // helper. It passes on the parent because the helper is all it touches — and
+        // calling that BLIND would accuse a test of missing a bug nobody pointed it at.
+        addedFile: { path: 'src/labels.mjs', content: `export const CANON = (s) => String(s).trim().toUpperCase();\n` },
+        testPath: 'tests/labels.test.mjs',
+        test: `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { CANON } from '../src/labels.mjs';
+test('CANON upper-cases and trims', () => {
+    // Deliberately says nothing the commit modified — naming the changed module, even
+    // inside a string, is enough for the reachability check to let this through.
+    assert.equal(CANON(' urgent '), 'URGENT');
+});`,
+    },
     '10-skipped-comment-only': {
         expect: 'SKIPPED',
         why: 'the source change is a reworded comment — identical behaviour, nothing to be blind to',
@@ -183,7 +216,11 @@ export function buildFixtures() {
                 ? `// Separator handling is what this module is about.\n${BROKEN}`
                 : FIXED + (spec.fixedExtra || ''),
         );
-        if (spec.test) writeFileSync(path.join(dir, 'tests/priority.test.mjs'), spec.test + '\n');
+        if (spec.addedFile) {
+            mkdirSync(path.dirname(path.join(dir, spec.addedFile.path)), { recursive: true });
+            writeFileSync(path.join(dir, spec.addedFile.path), spec.addedFile.content);
+        }
+        if (spec.test) writeFileSync(path.join(dir, spec.testPath || 'tests/priority.test.mjs'), spec.test + '\n');
         sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', 'fix: a hyphen made a HIGH-PRIORITY ticket read as normal']);
 
         built[name] = { dir, sha: execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD']).toString().trim(), ...spec };
