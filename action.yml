@@ -86,3 +86,10 @@ runs:
       run: |
         echo "::error::No test in this PR fails without the change."
         exit 1
+
+# Required by the GitHub Marketplace listing. `rewind` is not decoration: it is
+# literally what this does — wind the code back to before the fix, then run the
+# new test against it.
+branding:
+  icon: 'rewind'
+  color: 'orange'
