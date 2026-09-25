@@ -130,22 +130,22 @@ either way.
 
 ## How often is this tool wrong?
 
-Ask any measuring instrument this. Here is the answer for this one, on the 300-commit run.
+**[README.md → "How often is the TOOL right?"](README.md#does-it-work)** holds the audit:
+13 raw `BLIND` on the 300-commit run, 5 genuinely open after arm C, a 62% false-positive
+rate on the raw number.
 
-The raw headline was **13 `BLIND` commits**. After running arm C on each and checking them
-by hand, **5 were real**:
+It lives there and not here because it is the first thing a skeptic should see, and because
+a table kept in two places drifts in one of them. What belongs here is the design
+consequence:
 
-| | |
-|---|---|
-| 13 | raw `BLIND` |
-| −3 | `↻ REPAIRED SINCE` — the gap was closed after that commit |
-| −2 | `? cannot tell` — the test file no longer exists at HEAD |
-| −3 | category errors: two `fix(test):` (the bug WAS the test) and one build failure no unit test can catch |
-| **5** | genuinely open, **2.3% of answerable commits** |
+**Arm C is not a nicety, it is the reason the raw signal is publishable at all.** Eight of
+those thirteen were not defects in anybody's tests — three gaps had been closed by a later
+commit, two named test files no longer exist, two were `fix(test):` commits where the bug
+*was* the test, and one was a build failure no unit test could catch. None of that is
+visible from the two arms alone; all of it needs a third look at HEAD.
 
-**A 62% false-positive rate on the raw number.** Arm C and the corpus filter exist because
-of it. Publish the raw count and you hand someone thirteen tickets, eight of which waste
-their afternoon.
+That is also why the corpus filter drops `fix(test):` by default, and why
+`--include-test-fixes` exists for anyone who wants them back.
 
 ## Every bug found in this tool so far
 
