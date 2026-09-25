@@ -35,7 +35,7 @@ const envelope = (findings, skipped, target, extra = {}) => {
     return {
         contract: 1,
         tool: 'control-arm',
-        version: '1.0.0',
+        version: '1.1.0',
         ran_at: new Date().toISOString(),
         target,
         findings: findings.sort((a, b) =>
