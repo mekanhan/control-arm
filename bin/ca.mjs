@@ -18,11 +18,26 @@ import { prComment } from '../src/markdown-report.mjs';
 import { analyseCase, extractCase } from '../src/assertions.mjs';
 import { COMMANDS, COMMAND_NAMES } from '../src/cli-spec.mjs';
 import { sampleWarning } from '../src/sample-warning.mjs';
+import { verifyEnvelope, auditEnvelope, doctorEnvelope } from '../src/contract.mjs';
 
 const argv = process.argv.slice(2);
 const cmd = argv[0];
 const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i === -1 ? d : argv[i + 1]; };
 const has = n => argv.includes(`--${n}`);
+// `--json` predates the contract and took a PATH. Bare `--json` — no value, or the next
+// token is another flag — now means "contract envelope on stdout", which is what C-001
+// asks for. `--json <path>` is unchanged, so nothing that worked stops working.
+const bareJson = (() => {
+    const i = argv.indexOf('--json');
+    if (i === -1) return false;
+    const next = argv[i + 1];
+    return next === undefined || next.startsWith('-');
+})();
+/** C-001: one object on stdout, nothing else. Then C-007 decides the code. */
+const emit = (env, gate = false) => {
+    process.stdout.write(JSON.stringify(env, null, 2) + '\n');
+    process.exit(gate && env.summary.blocker ? 1 : 0);
+};
 const repo = path.resolve(flag('repo', process.cwd()));
 const workDir = path.resolve(flag('work', path.join(repo, '.ca-work')));
 
@@ -61,6 +76,8 @@ async function doctor() {
         checks.push({ ok: true, name: 'workspaces', detail: `${[].concat(pkg.workspaces).join(', ')} — workspace links will be re-pointed into the worktree (this is the trap that produces false BLIND)` });
     }
 
+    if (bareJson) emit(doctorEnvelope(checks, { repo }), true);
+
     const w = 22;
     console.log(`\n  ca doctor — ${repo}\n`);
     for (const c of checks) console.log(`  ${c.ok ? MARK.ok : MARK.no} ${c.name.padEnd(w)} ${c.detail}`);
@@ -76,10 +93,18 @@ async function verify() {
     const r = await verifyCommit({ repo, workDir, sha, against: flag('against'), runs, timeoutMs: Number(flag('timeout', 120_000)),
         onStep: s => process.stderr.write(`\r  … ${s}      `) });
     process.stderr.write('\r' + ' '.repeat(40) + '\r');
+    if (bareJson) { if (!has('keep')) await removeWorktrees(repo, workDir); emit(verifyEnvelope(r, { repo, sha })); }
     if (has('pr-comment')) console.log(prComment(r, { repoName: flag('repo', '.') }));
     else console.log(renderVerify(r));
     if (!has('keep')) await removeWorktrees(repo, workDir);
-    process.exit(r.verdict === BLIND ? 1 : 0);
+
+    // C-007. This used to exit 1 on BLIND unconditionally, which made a `warn` look like
+    // a blocker and put this tool's own opinion into an exit code every caller has to
+    // interpret. Gating is opt-in now, under the same name the Action already uses.
+    // BEHAVIOUR CHANGE: `ca verify` on a BLIND commit exits 0 unless --fail-on-blind.
+    // The Action is unaffected — it reads the verdict from stdout and already wraps the
+    // call in `|| true`.
+    process.exit(has('fail-on-blind') && r.verdict === BLIND ? 1 : 0);
 }
 
 async function audit() {
@@ -138,6 +163,8 @@ async function audit() {
         }
     }
     process.stderr.write('\r' + ' '.repeat(120) + '\r');
+
+    if (bareJson) emit(auditEnvelope(results, { repo, since, n: sample.length, seed }));
 
     console.log(renderAudit(results, { since, n: sample.length, eligible: eligible.length, matched: candidates.length, seed, seconds: (Date.now() - t0) / 1000 }));
 

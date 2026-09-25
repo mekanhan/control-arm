@@ -110,6 +110,56 @@ prefix is used consistently (1,213 `fix` / 988 `feat`), while additions-only fir
 claim and never decides the verdict on its own. A `CAUGHT` on a feature is still `CAUGHT`;
 it just does not get to say it would have caught a bug, because there was no bug.
 
+## All flags
+
+```bash
+ca doctor  --repo .                       # can this repo be measured?
+ca verify  <sha> --repo . --runs 3 --timeout 120000 --work .ca-work
+ca verify  <sha> --against origin/main --pr-comment --fail-on-blind
+ca audit   --n 100 --since '6 years' --grep '^fix' --seed 1 --out r.csv --html r.html
+ca issues  --apply --include-test-fixes
+```
+
+| flag | |
+|---|---|
+| `--repo <path>` | the repository to measure (default: cwd) |
+| `--against <ref>` | compare against a base ref — turns `verify` into a PR check |
+| `--runs <n>` | repeat each case N times to expose flakes |
+| `--timeout <ms>` | per-run timeout |
+| `--work <path>` | where the throwaway worktrees go |
+| `--keep` | leave them behind for inspection |
+| `--n <n>` · `--since <when>` · `--grep <re>` · `--seed <n>` | which commits `audit` samples |
+| `--include-test-fixes` | do not skip `fix(test):` commits, where the bug WAS the test |
+| `--out <file>` · `--html <file>` | write the audit as CSV or HTML |
+| `--pr-comment` | print the PR comment markdown and nothing else |
+| `--apply` | `issues` actually files them, rather than printing |
+| **`--json`** | **findings-contract v1 envelope on stdout** (see below) |
+| `--json <path>` | the older behaviour: write the audit summary to a file |
+| **`--fail-on-blind`** | **exit 1 when a commit is BLIND** |
+
+### The findings contract
+
+Bare `--json` emits one [findings-contract v1](https://github.com/mekanhan/findings-contract)
+object on stdout and nothing else — progress goes to stderr, so it pipes. It works on
+`doctor`, `verify` and `audit`.
+
+The mapping is not one-to-one, and the interesting part is what is **not** a finding:
+
+| | |
+|---|---|
+| commit `CAUGHT` | no finding. Nothing is wrong |
+| commit `BLIND` | a finding, severity `warn` |
+| commit `INCONCLUSIVE` | **not** a finding — it goes to `skipped`, with its reason |
+| case `NON-DISCRIMINATING` | never a finding. A fact about a guard, not a fault |
+| case `FLAKY` | a finding. Runs disagreed, which is a real defect |
+
+**Exit codes:** `0` ran cleanly · `1` found blockers · `2` the tool itself failed.
+
+`ca verify` used to exit `1` on `BLIND`. It no longer does unless you pass
+`--fail-on-blind`, because `BLIND` is a `warn` — a test that cannot catch a bug breaks
+nothing today — and putting a warning into an exit code makes every caller guess. The
+GitHub Action is unaffected: it reads the verdict from stdout.
+
 ## What you get
 
 > ### `control-arm` — 1 test here fails without this change
@@ -152,7 +202,7 @@ It does not care what *kind* of test it is, only whether the runner can execute 
 | backend / server logic | yes | same runner, same rewind |
 | database-backed tests | yes | needs a live DB, else they report `SKIPPED` |
 | component tests (React / RN) | yes | via vitest and jest |
-| browser e2e (Playwright) | **no** | no Playwright runner yet |
+| browser e2e (Playwright) | **no** | no Playwright runner — but it is detected and **declined by name**, so you get "no playwright runner" rather than a confusing failure |
 | performance / load | **no** | they measure speed, not correctness |
 | manual QA | **no** | nothing to execute |
 
