@@ -16,6 +16,8 @@ import { renderVerify, renderAudit, MARK } from '../src/report.mjs';
 import { renderHtml, issueBody } from '../src/html-report.mjs';
 import { prComment } from '../src/markdown-report.mjs';
 import { analyseCase, extractCase } from '../src/assertions.mjs';
+import { COMMANDS, COMMAND_NAMES } from '../src/cli-spec.mjs';
+import { sampleWarning } from '../src/sample-warning.mjs';
 
 const argv = process.argv.slice(2);
 const cmd = argv[0];
@@ -115,7 +117,14 @@ async function audit() {
     const pool = [...eligible];
     for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
     const sample = pool.slice(0, n);
-    process.stderr.write(`  drawing ${sample.length} at random (seed ${seed})\n\n`);
+    process.stderr.write(`  drawing ${sample.length} at random (seed ${seed})\n`);
+
+    // A draw that came up short is the difference between a measurement and a number.
+    const short = sampleWarning({
+        requested: n, matched: candidates.length, eligible: eligible.length,
+        drawn: sample.length, since, sinceWasExplicit: argv.includes('--since'),
+    });
+    process.stderr.write(short ? `\n${short}\n\n` : '\n');
 
     const results = [];
     const t0 = Date.now();
@@ -229,14 +238,21 @@ async function issues() {
     if (!has('keep')) await removeWorktrees(repo, workDir);
 }
 
-const table = { doctor, verify, audit, issues };
+// Built from the spec, not written out again here. `test/readme.test.mjs` checks the
+// docs against COMMANDS, so a command that exists only in this file would make that
+// check reject a command that genuinely works.
+const impl = { doctor, verify, audit, issues };
+const missing = COMMAND_NAMES.filter(n => !impl[n]);
+if (missing.length) throw new Error(`cli-spec names commands with no implementation: ${missing}`);
+const table = Object.fromEntries(COMMAND_NAMES.map(n => [n, impl[n]]));
+
 if (!table[cmd]) {
     console.log(`
   ca — does a test actually fail on the code it was written to catch?
 
-    ca doctor                                  can this repo be measured?
-    ca verify <commit> [--runs 3]              one commit, per-case verdicts
-    ca audit --n 100 [--since '6 months'] [--grep '^fix'] [--seed 1] [--out r.csv]
+    ca doctor                                  ${COMMANDS.doctor}
+    ca verify <commit> [--runs 3]              ${COMMANDS.verify}
+    ca audit --n 100 [--since '6 years'] [--grep '^fix'] [--seed 1] [--out r.csv]
 
   common:  --repo <path>   --timeout <ms>   --keep (leave worktrees for inspection)
 `);

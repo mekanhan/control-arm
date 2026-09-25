@@ -109,11 +109,19 @@ weighting: a codebase the author did not write, did not pick for a flattering re
 could not tune against. 190 commits matched the subject filter; 99 ship both a test and a
 source change; 40 were drawn from those.
 
-**One usability trap found while running it.** `audit` defaults to a six-month window. On
-a mature repo that silently shrinks the sample — the first dayjs run judged **5 commits
-instead of 40** and printed a confident, meaningless 100%. The window *is* echoed in the
-header line, so it is visible rather than hidden, but a `--n 40` that quietly returns 5
-deserves a louder signal. Pass `--since` explicitly on any repo older than six months.
+**One usability trap found while running it.** `audit` defaults to a **twelve-month**
+window, and dayjs ships few `fix:` commits in a year that also touch a test. The first
+dayjs run judged **5 commits instead of 40** and printed a confident, meaningless 100%.
+Nothing was broken: the pool was simply smaller than the request.
+
+What exposed it was that two different `--n` values and two different seeds gave
+**byte-identical output**. A rate that does not move when you change the sample size is
+not a rate.
+
+`audit` now says so when the draw comes up short, naming whichever cause applies — the
+window, or the test-plus-source pre-filter — and never blaming a `--since` the caller
+passed themselves (`src/sample-warning.mjs`, `SAMPLE-001..006`). Pass `--since` explicitly
+on any repo with more than a year of history.
 
 `INCONCLUSIVE` is 29% and 40% respectively. That is the honest denominator, not a rounding
 error: a fix that adds an export its test imports cannot be replayed against the parent,
