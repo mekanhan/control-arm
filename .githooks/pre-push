@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+#
+# pre-push — the two things CI cannot tell you until it is too late.
+#
+# Activate once per clone (worktrees inherit it):
+#
+#     git config core.hooksPath .githooks
+#
+# If a push prints none of this, the hook is NOT armed — check that first.
+set -u
+
+base="${CA_PUSH_BASE:-main}"
+branch="$(git rev-parse --abbrev-ref HEAD)"
+
+# ── 1. no direct pushes to the default branch ──────────────────────────────────
+# Everything here lands through a PR (#5, #6, #7, #11, #12), which is also what
+# runs the Node 20/22/24 matrix before the code is believed.
+if [ "$branch" = "$base" ]; then
+    echo ""
+    echo "❌ direct push to '$base' — this repo lands changes through PRs."
+    echo ""
+    echo "       git switch -c <branch>"
+    echo "       git push -u origin <branch>   &&   gh pr create --base $base"
+    echo ""
+    echo "   Genuinely need to skip?  git push --no-verify"
+    echo ""
+    exit 1
+fi
+
+# ── 2. a branch named like the default, that is not the default ────────────────
+# Earned 2026-09-25: a local branch called `master` sat at a commit ten behind
+# `main` while `main` moved on through four PRs. Pushing it created a PARALLEL
+# remote branch, and the CI that came back green ran against the wrong base. The
+# tell was one line of push output — "* [new branch] master -> master" — on a
+# repo that is anything but new.
+case "$branch" in
+    master|main|trunk|develop|dev)
+        if [ "$branch" != "$base" ]; then
+            echo ""
+            echo "❌ '$branch' is not this repo's default branch ('$base')."
+            echo ""
+            echo "   Pushing it creates a SECOND long-lived branch, and work on it is"
+            echo "   invisible to '$base' no matter how green its CI comes back."
+            echo ""
+            echo "       git switch -c <topic-branch> origin/$base"
+            echo "       git cherry-pick <your commits>"
+            echo ""
+            echo "   Genuinely need to skip?  git push --no-verify"
+            echo ""
+            exit 1
+        fi
+        ;;
+esac
+
+# ── 3. stale base ──────────────────────────────────────────────────────────────
+# Deliberately a FETCH, not a read of a possibly-stale remote ref: the whole
+# failure mode is believing an old answer. If the fetch cannot run (offline, no
+# remote) this SKIPS with a notice rather than blocking — a guard that strands
+# someone on a plane gets bypassed as a reflex, and then it guards nothing.
+if git rev-parse --verify --quiet "refs/remotes/origin/$base" >/dev/null; then
+    if git fetch --quiet origin "$base" 2>/dev/null; then
+        behind=$(git rev-list --count "HEAD..origin/$base" 2>/dev/null || echo 0)
+        if [ "${behind:-0}" -gt 0 ]; then
+            echo ""
+            echo "❌ '$branch' is $behind commit(s) behind origin/$base."
+            echo ""
+            echo "   The matrix would run against a base that has already moved, and"
+            echo "   a green result there says less than it looks like it does."
+            echo ""
+            echo "       git merge origin/$base"
+            echo "       git push"
+            echo ""
+            echo "   Different base?          CA_PUSH_BASE=<branch> git push"
+            echo "   Genuinely need to skip?  git push --no-verify"
+            echo ""
+            exit 1
+        fi
+    else
+        echo "⚠  could not fetch origin/$base — skipping the stale-base check."
+    fi
+fi
+
+echo "pre-push: on '$branch', up to date with origin/$base ✓"
+exit 0
