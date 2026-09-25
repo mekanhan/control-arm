@@ -91,6 +91,58 @@ const CODE_RE = /\.(m?[jt]sx?)$/i;
 const TEST_RE = (f) => CODE_RE.test(f) && (TEST_SUFFIX_RE.test(f) || TEST_DIR_RE.test(f));
 
 /**
+ * A "fix" whose source change is entirely comments.
+ *
+ * Found auditing auctionmate 2026-09-25: `fix(web): correct the framing — this was LIVE
+ * mispricing, not a dormant enum risk` came back BLIND and read as an open defect. Its one
+ * source hunk changes only a comment block — it corrects how an earlier fix was WRITTEN UP.
+ * There is no behaviour that differs from the parent, so no test could tell the two apart,
+ * and BLIND is not merely unhelpful there, it is wrong: it accuses a test of missing a bug
+ * that does not exist in the diff.
+ *
+ * The bias is deliberate. A line that is not clearly a comment makes the commit judgeable,
+ * because a false "comment-only" HIDES a finding, while a missed decline only costs a
+ * verdict on something harmless.
+ */
+const HASH_COMMENT_EXT = /\.(py|rb|sh|bash|zsh|ya?ml|toml|tf|pl|r|jl)$/i;
+const DASH_COMMENT_EXT = /\.(sql|lua|hs|adb|ads)$/i;
+const XML_COMMENT_EXT = /\.(html?|xml|svg|vue|svelte)$/i;
+
+export function isCommentOrBlank(file, raw) {
+    const line = raw.trim();
+    if (line === '') return true;
+    if (XML_COMMENT_EXT.test(file) && (line.startsWith('<!--') || line.startsWith('-->'))) return true;
+    if (HASH_COMMENT_EXT.test(file)) return line.startsWith('#');
+    if (DASH_COMMENT_EXT.test(file) && line.startsWith('--')) return true;
+    // C-family, including JSX's {/* … */}. `*` must be followed by space or end of line, or
+    // `*ptr = 0;` would read as a comment.
+    if (line.startsWith('//') || line.startsWith('/*') || line.startsWith('*/')
+        || line.startsWith('{/*') || line.startsWith('*/}')) return true;
+    return /^\*(\s|$)/.test(line);
+}
+
+/** True when EVERY changed line in every source file is a comment or blank. */
+export function diffIsCommentOnly(diffText) {
+    let sawAChangedLine = false;
+    let file = '';
+    for (const line of diffText.split('\n')) {
+        if (line.startsWith('+++ ') || line.startsWith('--- ')) continue;
+        if (line.startsWith('diff --git ')) {
+            const m = line.match(/ b\/(.+)$/);
+            file = m ? m[1] : '';
+            continue;
+        }
+        if (line.startsWith('+') || line.startsWith('-')) {
+            sawAChangedLine = true;
+            if (!isCommentOrBlank(file, line.slice(1))) return false;
+        }
+    }
+    // No changed lines at all (a pure rename or mode change) is not a comment-only fix —
+    // let the normal path decide, rather than declining something unexamined.
+    return sawAChangedLine;
+}
+
+/**
  * IS THIS A REPAIR, OR IS IT NEW CODE? — and why the answer changes what CAUGHT means.
  *
  * On a BUG FIX the base is the broken code, so a test that fails there genuinely
@@ -197,6 +249,20 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
     if (info.sourceFiles.every(f => BUILD_ONLY_RE.test(f))) {
         result.note = 'build-only change (lockfiles / project files) — a build catches this, not a unit test';
         return result;
+    }
+
+    // A comment-only source change has no behaviour to be blind to. Judging it produces a
+    // BLIND that reads as an open defect and is not one — measured on auctionmate, where
+    // one of four "still open" findings was a commit that reworded a comment block.
+    {
+        const args = against
+            ? ['diff', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`]
+            : ['diff', `${sha}^`, sha];
+        const srcDiff = await git(repo, [...args, '--', ...info.sourceFiles]).catch(() => '');
+        if (srcDiff && diffIsCommentOnly(srcDiff)) {
+            result.note = 'comment-only source change — the behaviour is identical to the parent, so no test could tell them apart';
+            return result;
+        }
     }
 
     const parent = against
