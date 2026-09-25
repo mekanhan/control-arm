@@ -245,6 +245,39 @@ function titleMatches(lit, caseName) {
     try { return new RegExp('^' + pattern + '$').test(caseName); } catch { return false; }
 }
 
+/**
+ * The opening brace of the CASE BODY — skipping an options object if one is there.
+ *
+ * `node:test`, vitest and jest all accept a middle argument:
+ *
+ *     test('name', { skip: SKIP },      () => { …assertions… })
+ *     test('name', { timeout: 5000 }, async () => { … })
+ *
+ * Taking the first `{` after the title grabs `{ skip: SKIP }` and analyses THAT as the
+ * body. It holds no assertions, so every such case was reported as
+ * "the case body contains no assertion at all" — about tests that are full of them.
+ *
+ * FOUND IN THE WILD, on five tests holding eleven assertions between them. The VERDICT
+ * was not affected — that comes from red/green across the two arms — but the REASON was,
+ * and a wrong reason attached to a BLIND verdict sends someone to look at the wrong
+ * thing. That is the same failure this tool exists to prevent, one level up.
+ */
+function bodyBraceAfter(source, from) {
+    let i = from;
+    // Walk past `,` and whitespace, stepping over any balanced `{...}` met before the
+    // callback. An options object is the only thing that can legally appear there.
+    for (let guard = 0; guard < 4; guard++) {
+        while (i < source.length && /[\s,]/.test(source[i])) i++;
+        if (source[i] !== '{') break;
+        const end = matchBrace(source, i);
+        if (end === -1) return -1;
+        i = end + 1;
+    }
+    // Now at the callback — `() => {`, `async () => {`, `function () {`. Its body is the
+    // next brace, with no options object left to confuse it with.
+    return source.indexOf('{', i);
+}
+
 function extractExact(source, caseName) {
     CALL.lastIndex = 0;
     let m;
@@ -253,7 +286,10 @@ function extractExact(source, caseName) {
         const lit = readLiteral(source, qi);
         if (!lit) continue;
         if (!titleMatches(lit, caseName)) continue;
-        const open = source.indexOf('{', lit.end);
+        // +1 because readLiteral returns the index OF the closing quote, not after it.
+        // Starting on the quote made the options-object skip a no-op, which is how this
+        // fix silently did nothing on its first attempt.
+        const open = bodyBraceAfter(source, lit.end + 1);
         if (open === -1) continue;
         const close = matchBrace(source, open);
         // A failed brace scan on ONE site must not abandon the search — a later site may
