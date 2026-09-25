@@ -139,6 +139,19 @@ test('label parsing / separator handling', () => {
         why: 'the fix shipped no test at all',
         test: null,
     },
+    '10-skipped-comment-only': {
+        expect: 'SKIPPED',
+        why: 'the source change is a reworded comment — identical behaviour, nothing to be blind to',
+        // Source stays BROKEN; only a comment moves. A commit like this used to come back
+        // BLIND and read as an open defect.
+        commentOnly: true,
+        test: `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { priority } from '../src/priority.mjs';
+test('a spaced HIGH PRIORITY label is priority 1', () => {
+    assert.equal(priority('HIGH PRIORITY'), 1);
+});`,
+    },
 };
 
 function sh(cwd, args) { execFileSync('git', args, { cwd, stdio: 'pipe' }); }
@@ -162,7 +175,14 @@ export function buildFixtures() {
         sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', 'feat: priority labels']);
 
         // --- fix: source repaired, test added ---
-        writeFileSync(path.join(dir, 'src/priority.mjs'), FIXED + (spec.fixedExtra || ''));
+        // A comment-only fixture keeps the BROKEN source and changes only a comment, so the
+        // commit is a genuine `fix:` subject with no behavioural diff from its parent.
+        writeFileSync(
+            path.join(dir, 'src/priority.mjs'),
+            spec.commentOnly
+                ? `// Separator handling is what this module is about.\n${BROKEN}`
+                : FIXED + (spec.fixedExtra || ''),
+        );
         if (spec.test) writeFileSync(path.join(dir, 'tests/priority.test.mjs'), spec.test + '\n');
         sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', 'fix: a hyphen made a HIGH-PRIORITY ticket read as normal']);
 
