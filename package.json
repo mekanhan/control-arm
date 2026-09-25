@@ -1,9 +1,32 @@
 {
   "name": "control-arm",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Does a test actually fail on the code it was written to catch?",
   "type": "module",
   "bin": { "ca": "./bin/ca.mjs" },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "DESIGN.md",
+    "LICENSE"
+  ],
+  "engines": { "node": ">=18" },
+  "keywords": [
+    "testing",
+    "test-quality",
+    "mutation-testing",
+    "regression-testing",
+    "continuous-integration",
+    "github-actions",
+    "code-quality"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mekanhan/control-arm.git"
+  },
+  "homepage": "https://github.com/mekanhan/control-arm#readme",
+  "bugs": { "url": "https://github.com/mekanhan/control-arm/issues" },
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "fixtures": "node fixtures/build.mjs"
