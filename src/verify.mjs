@@ -131,7 +131,19 @@ export function commitKind(subject, sourceAddedOnly) {
     return { kind: 'unknown', newCode: !!sourceAddedOnly, prefix: null };
 }
 
-export async function commitInfo(repo, sha, against = null) {
+/**
+ * `withDiffStat` is OFF by default, and that default is load-bearing.
+ *
+ * The additions-only signal needs `git show --numstat` — one subprocess per commit. The
+ * audit calls commitInfo on EVERY candidate just to test eligibility (1,178 of them on one
+ * real corpus), so computing it unconditionally pushed the selection pass past 70 minutes
+ * BEFORE a single commit was judged. Measured, not estimated: that run was killed at 72.
+ *
+ * Only the commits actually verified need it, so verifyCommit asks and the eligibility
+ * pass does not. A regression introduced by the fix for issue #3, and caught by noticing a
+ * run sit in "selecting commits" for over an hour rather than by any test.
+ */
+export async function commitInfo(repo, sha, against = null, withDiffStat = false) {
     const out = await git(repo, ['show', '--no-patch', '--format=%H%n%s%n%ad', '--date=short', sha]);
     const [full, subject, date] = out.trim().split('\n');
     // With a base, the changed set is the WHOLE branch, not just the tip commit — a PR's
@@ -140,7 +152,7 @@ export async function commitInfo(repo, sha, against = null) {
         ? (await git(repo, ['diff', '--name-only', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`])).trim().split('\n').filter(Boolean)
         : (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean);
     // Deletions in non-test source: a repair usually changes lines, new code only adds.
-    const numstat = against
+    const numstat = !withDiffStat ? '' : against
         ? await git(repo, ['diff', '--numstat', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`])
         : await git(repo, ['show', '--numstat', '--format=', sha]);
     let srcDeletions = 0;
@@ -177,7 +189,7 @@ export async function commitInfo(repo, sha, against = null) {
  * drags in everyone else's changes and attributes them here.
  */
 export async function verifyCommit({ repo, workDir, sha, against = null, runs = 1, timeoutMs = 120_000, onStep = () => {} }) {
-    const info = await commitInfo(repo, sha, against);
+    const info = await commitInfo(repo, sha, against, true);
     const result = { ...info, cases: [], verdict: SKIPPED, note: null };
 
     if (info.testFiles.length === 0) { result.note = 'no test file in the commit'; return result; }
