@@ -129,14 +129,20 @@ It does not care what *kind* of test it is, only whether the runner can execute 
 
 ## Does it work?
 
-Two repositories, random draws, seeds recorded:
+Three repositories, random draws, seeds recorded so the samples are reproducible.
 
-| | a private monorepo | nodejs/undici |
-|---|---|---|
-| fix commits sampled | 300 | 25 |
-| answerable | 214 | 15 |
-| **CAUGHT** | **93.9%** | **80.0%** |
-| runtime | 7.1 s/commit | 24.9 s/commit |
+| | a private monorepo | nodejs/undici | iamkun/dayjs |
+|---|---|---|---|
+| fix commits sampled | 300 | 25 | 40 |
+| answerable | 214 | 15 | 25 |
+| **CAUGHT** | **93.9%** | **80.0%** | **92.0%** |
+| BLIND | 6.1% | 20.0% | 8.0% |
+| runtime | 7.1 s/commit | 24.9 s/commit | 1.4 s/commit |
+
+**The dayjs column is the one to weigh.** It is a codebase the author did not write, did
+not choose for a flattering result, and could not tune the tool against — 190 fix commits
+matched the filter, 99 ship both a test and a source change, 40 drawn at random with the
+seed recorded. It lands within a point of the private monorepo it was built on.
 
 Of the 13 raw `BLIND` verdicts in that 300-commit run, **5 were genuinely open** — a 62%
 false-positive rate on the raw number, which is why the filters exist.

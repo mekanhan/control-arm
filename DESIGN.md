@@ -93,16 +93,27 @@ suite is held to.
 
 ## Measured results
 
-Two repositories, random draws, seeds recorded so the samples are reproducible.
+Three repositories, random draws, seeds recorded so the samples are reproducible.
 
-| | a private monorepo | nodejs/undici |
-|---|---|---|
-| fix commits sampled | 300 | 25 |
-| answerable | 214 | 15 |
-| **CAUGHT** | **201 — 93.9%** | **12 — 80.0%** |
-| BLIND | 13 — 6.1% | 3 — 20.0% |
-| INCONCLUSIVE | 86 | 10 |
-| runtime | 7.1 s/commit | 24.9 s/commit |
+| | a private monorepo | nodejs/undici | iamkun/dayjs |
+|---|---|---|---|
+| fix commits sampled | 300 | 25 | 40 |
+| answerable | 214 | 15 | 25 |
+| **CAUGHT** | **201 — 93.9%** | **12 — 80.0%** | **23 — 92.0%** |
+| BLIND | 13 — 6.1% | 3 — 20.0% | 2 — 8.0% |
+| INCONCLUSIVE | 86 | 10 | 9 |
+| runtime | 7.1 s/commit | 24.9 s/commit | 1.4 s/commit |
+
+The dayjs run (`--n 40 --since '6 years' --grep '^fix' --seed 11`) is the one worth
+weighting: a codebase the author did not write, did not pick for a flattering result, and
+could not tune against. 190 commits matched the subject filter; 99 ship both a test and a
+source change; 40 were drawn from those.
+
+**One usability trap found while running it.** `audit` defaults to a six-month window. On
+a mature repo that silently shrinks the sample — the first dayjs run judged **5 commits
+instead of 40** and printed a confident, meaningless 100%. The window *is* echoed in the
+header line, so it is visible rather than hidden, but a `--n 40` that quietly returns 5
+deserves a louder signal. Pass `--since` explicitly on any repo older than six months.
 
 `INCONCLUSIVE` is 29% and 40% respectively. That is the honest denominator, not a rounding
 error: a fix that adds an export its test imports cannot be replayed against the parent,
