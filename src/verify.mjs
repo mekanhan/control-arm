@@ -287,6 +287,21 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
         // and the question is which runner the test was written for.
         const { flavour, pkgDir } = await selectRunner(fixDir, rel);
         const runner = RUNNERS[flavour];
+
+        // DECLINE BY NAME. A runner we do not have must say which one it is, and must not
+        // be attempted with a different one. Running a Playwright spec under node:test
+        // produced `arm A did not run (node): test failed`, which blames the author's test
+        // for the tool's own gap — the worst kind of wrong message, because it is
+        // actionable and points at the wrong thing.
+        if (!runner) {
+            perFile.push({
+                file: rel, runner: flavour, pkgDir,
+                skip: `no ${flavour} runner — this file is a ${flavour} test and control-arm cannot execute it. `
+                    + `Supported today: node:test, vitest, jest.`,
+            });
+            continue;
+        }
+
         const opts = { relTestPath: rel, pkgDir, timeoutMs };
 
         const a = await runner.execute({ worktreeDir: fixDir, ...opts });

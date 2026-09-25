@@ -18,6 +18,12 @@ import path from 'node:path';
 const CONFIGS = [
     { flavour: 'vitest', files: ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mjs', 'vite.config.ts', 'vite.config.js'] },
     { flavour: 'jest', files: ['jest.config.js', 'jest.config.ts', 'jest.config.mjs', 'jest.config.json'] },
+    // Playwright is detected precisely so it can be DECLINED by name. There is no
+    // Playwright runner here, and falling through to node:test made a Playwright spec
+    // report `arm A did not run (node): test failed` — which reads as "your test is
+    // broken" when the truth is "I used the wrong tool and should have said so".
+    // Found by a user pointing this at a real Playwright suite.
+    { flavour: 'playwright', files: ['playwright.config.ts', 'playwright.config.js', 'playwright.config.mjs'] },
 ];
 
 const exists = async p => { try { await access(p); return true; } catch { return false; } };
@@ -49,6 +55,7 @@ export async function selectRunner(worktreeRoot, relTestPath) {
                 if (/\bvitest\b/.test(script)) return { flavour: 'vitest', pkgDir: dir === '.' ? '' : dir };
                 if (/\bjest\b/.test(script)) return { flavour: 'jest', pkgDir: dir === '.' ? '' : dir };
                 if (/node\s+--test|\bnode:test\b/.test(script)) return { flavour: 'node', pkgDir: dir === '.' ? '' : dir };
+                if (/\bplaywright\s+test\b/.test(script)) return { flavour: 'playwright', pkgDir: dir === '.' ? '' : dir };
             } catch { /* unparseable package.json is not a signal */ }
         }
 
