@@ -23,12 +23,12 @@ const isCannotRun = m => classifyMessages(m).code === 'ERR_TEST_FAILURE';
 const isUnknown = m => classifyMessages(m).code === null;
 
 test('vitest/chai disagreement is read as an assertion', () => {
-    assert.ok(isDisagreement(["AssertionError: expected 'Salvage' to deeply equal 'Rebuilt'"]));
+    assert.ok(isDisagreement(["AssertionError: expected 'Urgent' to deeply equal 'Normal'"]));
     assert.ok(isDisagreement(['AssertionError: expected 40 to be 65 // Object.is equality']));
 });
 
 test('jest/expect disagreement is read as an assertion', () => {
-    assert.ok(isDisagreement(['expect(received).toBe(expected) // Object.is equality\n\nExpected: "Rebuilt"\nReceived: "Salvage"']));
+    assert.ok(isDisagreement(['expect(received).toBe(expected) // Object.is equality\n\nExpected: "Normal"\nReceived: "Urgent"']));
     assert.ok(isDisagreement(['Error: expect(received).toEqual(expected)\n\n- Expected\n+ Received']));
 });
 
