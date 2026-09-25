@@ -109,11 +109,19 @@ weighting: a codebase the author did not write, did not pick for a flattering re
 could not tune against. 190 commits matched the subject filter; 99 ship both a test and a
 source change; 40 were drawn from those.
 
-**One usability trap found while running it.** `audit` defaults to a six-month window. On
-a mature repo that silently shrinks the sample — the first dayjs run judged **5 commits
-instead of 40** and printed a confident, meaningless 100%. The window *is* echoed in the
-header line, so it is visible rather than hidden, but a `--n 40` that quietly returns 5
-deserves a louder signal. Pass `--since` explicitly on any repo older than six months.
+**One usability trap found while running it.** `audit` defaults to a **twelve-month**
+window, and dayjs ships few `fix:` commits in a year that also touch a test. The first
+dayjs run judged **5 commits instead of 40** and printed a confident, meaningless 100%.
+Nothing was broken: the pool was simply smaller than the request.
+
+What exposed it was that two different `--n` values and two different seeds gave
+**byte-identical output**. A rate that does not move when you change the sample size is
+not a rate.
+
+`audit` now says so when the draw comes up short, naming whichever cause applies — the
+window, or the test-plus-source pre-filter — and never blaming a `--since` the caller
+passed themselves (`src/sample-warning.mjs`, `SAMPLE-001..006`). Pass `--since` explicitly
+on any repo with more than a year of history.
 
 `INCONCLUSIVE` is 29% and 40% respectively. That is the honest denominator, not a rounding
 error: a fix that adds an export its test imports cannot be replayed against the parent,
@@ -122,22 +130,22 @@ either way.
 
 ## How often is this tool wrong?
 
-Ask any measuring instrument this. Here is the answer for this one, on the 300-commit run.
+**[README.md → "How often is the TOOL right?"](README.md#does-it-work)** holds the audit:
+13 raw `BLIND` on the 300-commit run, 5 genuinely open after arm C, a 62% false-positive
+rate on the raw number.
 
-The raw headline was **13 `BLIND` commits**. After running arm C on each and checking them
-by hand, **5 were real**:
+It lives there and not here because it is the first thing a skeptic should see, and because
+a table kept in two places drifts in one of them. What belongs here is the design
+consequence:
 
-| | |
-|---|---|
-| 13 | raw `BLIND` |
-| −3 | `↻ REPAIRED SINCE` — the gap was closed after that commit |
-| −2 | `? cannot tell` — the test file no longer exists at HEAD |
-| −3 | category errors: two `fix(test):` (the bug WAS the test) and one build failure no unit test can catch |
-| **5** | genuinely open, **2.3% of answerable commits** |
+**Arm C is not a nicety, it is the reason the raw signal is publishable at all.** Eight of
+those thirteen were not defects in anybody's tests — three gaps had been closed by a later
+commit, two named test files no longer exist, two were `fix(test):` commits where the bug
+*was* the test, and one was a build failure no unit test could catch. None of that is
+visible from the two arms alone; all of it needs a third look at HEAD.
 
-**A 62% false-positive rate on the raw number.** Arm C and the corpus filter exist because
-of it. Publish the raw count and you hand someone thirteen tickets, eight of which waste
-their afternoon.
+That is also why the corpus filter drops `fix(test):` by default, and why
+`--include-test-fixes` exists for anyone who wants them back.
 
 ## Every bug found in this tool so far
 

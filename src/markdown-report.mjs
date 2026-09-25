@@ -24,9 +24,13 @@ export function prComment(r, { repoName = '.' } = {}) {
     const disc = r.cases.filter(c => c.verdict === 'CAUGHT');
     const inc = r.cases.filter(c => c.verdict === 'INCONCLUSIVE');
     const L = [];
+    // STATE THE FACT, do not grade the branch. "this branch is proven" was the one
+    // heading in this tool that claimed more than it had measured: what was observed is
+    // that N tests fail on the base, which is a count, not a verdict on the branch.
+    const n = disc.length;
     const head = r.verdict !== 'CAUGHT' ? r.verdict
         : r.newCode ? 'new code — these tests cannot be judged this way'
-        : 'this branch is proven';
+        : `${n} test${n === 1 ? '' : 's'} here fail${n === 1 ? 's' : ''} without this change`;
     L.push(`### \`control-arm\` — ${head}`);
     L.push('');
     if (disc.length && r.newCode) {
