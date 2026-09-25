@@ -104,3 +104,16 @@ test('CLI-006: the dispatch table and the spec do not drift', () => {
     assert.match(src, /from '\.\.\/src\/cli-spec\.mjs'/,
         'bin/ca.mjs must import the spec, or the two can disagree');
 });
+
+test('CLI-007: every flag the binary reads is documented somewhere', () => {
+    // The mirror of CLI-003, and the gap that let `--fail-on-blind` and the new meaning
+    // of `--json` ship undocumented while six green checks said the docs were fine.
+    // A one-directional gate only catches docs that lie, never docs that omit.
+    const docs = README + DESIGN;
+    const shown = new Set(invocations.flatMap(l =>
+        [...l.matchAll(/(?:^|\s)--([a-z][a-z-]*)/g)].map(m => m[1])));
+    const missing = FLAG_NAMES.filter(f =>
+        !shown.has(f) && !docs.includes(`\`--${f}\``) && !docs.includes(`--${f} `));
+    assert.deepEqual(missing, [],
+        `the binary reads flags no doc mentions: ${missing.map(f => '--' + f).join(', ')}`);
+});
