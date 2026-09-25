@@ -88,6 +88,10 @@ const BUILD_ONLY_RE = /(^|\/)(Podfile(\.lock)?|Gemfile(\.lock)?|Cartfile.*|packa
 const TEST_DIR_RE = /(^|\/)(tests?|__tests__|spec|specs)\//i;
 const TEST_SUFFIX_RE = /\.(test|spec)\.(m?[jt]sx?)$/i;
 const CODE_RE = /\.(m?[jt]sx?)$/i;
+// What arm B may carry over from the fix: things a test can actually LOAD. Restricted after
+// the first run copied PNG screenshots out of docs/ into the worktree — pointless, and
+// `transplant` writes through a string, so a binary would arrive corrupted anyway.
+const LOADABLE_RE = /\.(m?[jt]sx?|json|ya?ml|sql|csv|graphql|snap)$/i;
 const TEST_RE = (f) => CODE_RE.test(f) && (TEST_SUFFIX_RE.test(f) || TEST_DIR_RE.test(f));
 
 /**
@@ -119,6 +123,29 @@ export function isCommentOrBlank(file, raw) {
     if (line.startsWith('//') || line.startsWith('/*') || line.startsWith('*/')
         || line.startsWith('{/*') || line.startsWith('*/}')) return true;
     return /^\*(\s|$)/.test(line);
+}
+
+/**
+ * Does this test text reach any file the commit MODIFIED?
+ *
+ * Only asked when arm B needed files the commit ADDED in order to load at all. If the test
+ * names nothing the commit modified, the most likely reading is that it tests the new code
+ * the commit introduced — and the bug lives in the modified lines, which such a test never
+ * touches. Calling that BLIND would accuse a test of missing a bug it was never pointed at,
+ * which is this tool's worst possible output.
+ *
+ * Deliberately crude, and deliberately biased toward "yes, it reaches". A false "reaches"
+ * costs a BLIND that a human then dismisses; a false "does not reach" silently drops a real
+ * finding. Matching is on the module basename, so an indirect import through a barrel file
+ * is missed — that direction is the safe one.
+ */
+export function testReachesModified(testSrc, modifiedFiles) {
+    for (const f of modifiedFiles) {
+        const base = f.split('/').pop().replace(/\.[^.]+$/, '');
+        if (base.length < 3) continue;
+        if (new RegExp(`\\b${base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(testSrc)) return true;
+    }
+    return false;
 }
 
 /** True when EVERY changed line in every source file is a comment or blank. */
@@ -198,14 +225,17 @@ export function commitKind(subject, sourceAddedOnly) {
 export async function commitInfo(repo, sha, against = null, withDiffStat = false) {
     const out = await git(repo, ['show', '--no-patch', '--format=%H%n%s%n%ad', '--date=short', sha]);
     const [full, subject, date] = out.trim().split('\n');
+    // Computed once. It was resolved inline twice before, and the name-status call below
+    // would have made it three.
+    const mergeBase = against ? (await git(repo, ['merge-base', against, sha])).trim() : null;
     // With a base, the changed set is the WHOLE branch, not just the tip commit — a PR's
     // test may have arrived in commit 1 and its source change in commit 3.
     const files = against
-        ? (await git(repo, ['diff', '--name-only', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`])).trim().split('\n').filter(Boolean)
+        ? (await git(repo, ['diff', '--name-only', `${mergeBase}...${sha}`])).trim().split('\n').filter(Boolean)
         : (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean);
     // Deletions in non-test source: a repair usually changes lines, new code only adds.
     const numstat = !withDiffStat ? '' : against
-        ? await git(repo, ['diff', '--numstat', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`])
+        ? await git(repo, ['diff', '--numstat', `${mergeBase}...${sha}`])
         : await git(repo, ['show', '--numstat', '--format=', sha]);
     let srcDeletions = 0;
     for (const line of numstat.trim().split('\n')) {
@@ -218,12 +248,30 @@ export async function commitInfo(repo, sha, against = null, withDiffStat = false
     }
     const kindInfo = commitKind(subject, srcDeletions === 0);
 
+    // ADDED vs MODIFIED matters for arm B. A file the commit ADDED did not exist at the
+    // parent, so putting it there cannot un-break anything — the behavioural repair lives in
+    // the lines of MODIFIED files, which arm B must keep in their broken state.
+    const nameStatus = !withDiffStat ? '' : against
+        ? await git(repo, ['diff', '--name-status', `${mergeBase}...${sha}`]).catch(() => '')
+        : await git(repo, ['show', '--name-status', '--format=', sha]).catch(() => '');
+    const added = [], modified = [];
+    for (const line of nameStatus.trim().split('\n')) {
+        const parts = line.split(/\t/);
+        if (parts.length < 2) continue;
+        const [st, f] = [parts[0], parts[parts.length - 1]];
+        if (TEST_RE(f) || DOC_RE.test(f)) continue;
+        if (st.startsWith('A')) added.push(f);
+        else if (st.startsWith('M') || st.startsWith('R')) modified.push(f);
+    }
+
     return {
         sha: full, short: full.slice(0, 8), subject, date,
         ...kindInfo, srcDeletions,
         files,
         testFiles: files.filter(f => TEST_RE(f)),
         sourceFiles: files.filter(f => !TEST_RE(f) && !DOC_RE.test(f)),
+        addedSourceFiles: added,
+        modifiedSourceFiles: modified,
     };
 }
 
@@ -280,6 +328,36 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
     const parentDir = await ensureWorktree(repo, workDir, 'parent', parent);
     await linkDependencies(repo, parentDir);
     await linkEnvFiles(repo, parentDir);
+
+    // ── files the commit ADDED go onto the parent too ─────────────────────────────────
+    //
+    // Measured on 300 auctionmate fix commits: 82 came back INCONCLUSIVE, and 39 of those
+    // — nearly half — failed for one reason. The test imports a FILE the commit added, so
+    // at the parent the module graph cannot even be built and every case in the file dies
+    // at link time. 1,020 cases were lost this way across just 206 (commit, file) pairs;
+    // one unresolvable import takes a whole file down, and the biggest took 41 cases with
+    // it.
+    //
+    // A file the commit ADDED did not exist at the parent, so nothing at the parent can
+    // depend on it and putting it there cannot un-break anything. The repair lives in the
+    // lines of MODIFIED files, and those stay exactly as the parent left them — which is
+    // what keeps arm B a picture of the bug.
+    //
+    // The asymmetry this rests on: after the transplant a test that FAILS on arm B has
+    // failed on an assertion about the parent's behaviour, which is trustworthy. A test
+    // that PASSES might simply never reach a modified file — so that direction is guarded
+    // below rather than reported as BLIND.
+    const transplantedAdded = [];
+    for (const rel of (info.addedSourceFiles || []).filter(f => LOADABLE_RE.test(f))) {
+        try {
+            await transplant(repo, sha, rel, parentDir);
+            transplantedAdded.push(rel);
+        } catch {
+            // Unreadable at the fix (submodule, symlink, binary) — arm B just stays as it
+            // was, which is the pre-existing behaviour.
+        }
+    }
+    result.transplantedAdded = transplantedAdded;
 
     const perFile = [];
     for (const rel of info.testFiles) {
@@ -338,6 +416,27 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
         }
     }
     result.verdict = rollUp(result.cases);
+
+    // A BLIND that only became reachable by transplanting added files needs one more
+    // question answered: does the test go anywhere near what the commit actually changed?
+    // If it names nothing the commit modified, it is testing the new code, and BLIND would
+    // be an accusation rather than a finding. CAUGHT is left alone — a test that FAILED on
+    // the parent has failed on the parent's behaviour, however it got there.
+    if (result.verdict === BLIND && (result.transplantedAdded || []).length) {
+        const mods = info.modifiedSourceFiles || [];
+        let reaches = mods.length === 0;
+        for (const f of perFile) {
+            if (reaches) break;
+            try {
+                reaches = testReachesModified(await git(repo, ['show', `${sha}:${f.file}`]), mods);
+            } catch { /* unreadable — leave `reaches` alone */ }
+        }
+        if (!reaches) {
+            result.verdict = INCONCLUSIVE;
+            result.note = 'arm B could only load with files this commit ADDED, and the test names '
+                + 'nothing it modified — most likely a test for the new code, not for the bug';
+        }
+    }
 
     // --- ARM C: is this BLIND finding still open? ---------------------------------------
     if (result.verdict === BLIND) {

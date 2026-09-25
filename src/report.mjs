@@ -33,6 +33,13 @@ export function renderVerify(r) {
     L.push('');
     L.push(`  ${r.short}  ${r.subject}`);
     L.push(`  ${r.date} · ${r.testFiles.length} test file(s) · ${r.sourceFiles.length} source file(s) changed`);
+    // Say it when arm B is not purely the parent. The verdict still describes the parent's
+    // BEHAVIOUR — only files the commit added are carried over, and nothing at the parent
+    // could depend on those — but a reader is entitled to know the tree was not untouched.
+    if ((r.transplantedAdded || []).length) {
+        const n = r.transplantedAdded.length;
+        L.push(`  arm B also carries ${n} file(s) this commit ADDED, or the test could not load: ${r.transplantedAdded.slice(0, 3).join(', ')}${n > 3 ? ` +${n - 3} more` : ''}`);
+    }
     if (r.note) { L.push(`  ${MARK.hm} ${r.note}`); L.push(''); return L.join('\n'); }
 
     const idn = r.cases.find(c => /identity unproven/.test(c.reason || ''));
