@@ -230,9 +230,23 @@ export async function commitInfo(repo, sha, against = null, withDiffStat = false
     const mergeBase = against ? (await git(repo, ['merge-base', against, sha])).trim() : null;
     // With a base, the changed set is the WHOLE branch, not just the tip commit — a PR's
     // test may have arrived in commit 1 and its source change in commit 3.
-    const files = against
+    // `--name-only` lists a RENAMED file under BOTH its old and new path, and a DELETED
+    // file under a path that no longer exists at this commit. Treating the old path as a
+    // test file the commit ships means `git show <sha>:<old path>` throws later — which
+    // took the entire run down with a stack trace instead of reporting anything at all.
+    //
+    // Found on a real commit that renamed profitBarHelp.test.ts to .tsx.
+    const deletedOut = await git(repo,
+        against ? ['diff', '--name-status', '--diff-filter=D', mergeBase + '...' + sha]
+                : ['show', '--name-status', '--diff-filter=D', '--format=', sha]).catch(() => '');
+    const deleted = new Set(deletedOut.trim().split('\n')
+        .map(l => l.split(/\t/).pop())
+        .filter(Boolean));
+
+    const files = (against
         ? (await git(repo, ['diff', '--name-only', `${mergeBase}...${sha}`])).trim().split('\n').filter(Boolean)
-        : (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean);
+        : (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean)
+    ).filter(f => !deleted.has(f));
     // Deletions in non-test source: a repair usually changes lines, new code only adds.
     const numstat = !withDiffStat ? '' : against
         ? await git(repo, ['diff', '--numstat', `${mergeBase}...${sha}`])

@@ -181,7 +181,17 @@ export async function linkEnvFiles(repoRoot, worktreeDir) {
 
 /** Put the fix's version of a test file onto the parent tree. The transplant. */
 export async function transplant(repo, sha, relPath, worktreeDir) {
-    const content = await git(repo, ['show', `${sha}:${relPath}`]);
+    // BELT AND BRACES. The caller now filters deleted paths, but a read that cannot find
+    // its path must still degrade to "this file cannot be judged" rather than take the run
+    // down. A diagnostic that dies with a stack trace has told the user nothing, and has
+    // done it in the most alarming way available.
+    let content;
+    try {
+        content = await git(repo, ['show', `${sha}:${relPath}`]);
+    } catch (e) {
+        const why = String(e.stderr || e.message || '').split('\n')[0].slice(0, 160);
+        throw Object.assign(new Error(`cannot read ${relPath} at ${sha.slice(0, 8)} — ${why}`), { soft: true });
+    }
     const dest = path.join(worktreeDir, relPath);
     await mkdir(path.dirname(dest), { recursive: true });
     await writeFile(dest, content);
