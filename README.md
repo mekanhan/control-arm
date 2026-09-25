@@ -228,6 +228,24 @@ measurement — and there are exactly four ways to earn it:
 The breakdown *between* these four has not been counted per repository, so no split is
 quoted here.
 
+## Working on this repo
+
+```bash
+git config core.hooksPath .githooks   # once per clone; worktrees inherit it
+```
+
+`pre-push` refuses three things CI can only tell you about after the fact: a direct push to
+`main` (everything lands through a PR), a branch **named** like a default that is not this
+repo's default, and a push from a base that has already moved.
+
+The middle one is not hypothetical. A local `master` once sat ten commits behind `main`
+while `main` moved on through four PRs; pushing it created a parallel remote branch, and the
+Node 20/22/24 matrix came back green against the wrong base. The only tell was a line of
+push output — `* [new branch] master -> master` — on a repo that is anything but new.
+
+If a push prints none of that hook's output, it is not armed. Check `core.hooksPath` before
+trusting anything it did not say.
+
 ## Prior art
 
 The fail-before / pass-after check is not new, and it is worth saying who got there first:
