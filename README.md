@@ -194,17 +194,34 @@ measurement that cannot tell zero from failure is not a measurement.
 
 ## Which of your tests it looks at
 
-It does not care what *kind* of test it is, only whether the runner can execute the file.
+It does not care what *kind* of test it is, only whether a runner it has can execute the file.
 
-| kind | covered | why |
+**Every row carries what proves it.** A row without evidence beside it is an aspiration, and
+that is exactly where this table was wrong before: vitest and jest were listed as covered
+because the code has adapters for them, not because either had ever been run. The first
+commit used to check crashed the tool.
+
+| kind | covered | proven by |
 |---|---|---|
-| unit tests | yes | the easy case |
-| backend / server logic | yes | same runner, same rewind |
-| database-backed tests | yes | needs a live DB, else they report `SKIPPED` |
-| component tests (React / RN) | yes | via vitest and jest |
-| browser e2e (Playwright) | **no** | no Playwright runner — but it is detected and **declined by name**, so you get "no playwright runner" rather than a confusing failure |
-| performance / load | **no** | they measure speed, not correctness |
+| unit tests (`node:test`) | yes | fixtures `01`–`12`, built and run by `npm test` on every push |
+| backend / server logic | yes | same runner, same rewind — fixtures above |
+| component tests (**vitest**) | yes | observed on a real commit, 2026-09-25 — **no public fixture yet** (#21) |
+| component tests (**jest**) | yes | observed on a real commit, 2026-09-25 — **no public fixture yet** (#21) |
+| database-backed tests | partly | observed running against a live DB. The `SKIPPED`-without-a-DB path is **unverified** (#21) |
+| browser e2e (Playwright) | **no** | `RUNNER-010` — detected and **declined by name**, so you get "no playwright runner" rather than a confusing failure |
+| WDIO / Appium | **no** | not detected at all — it will fall through to `node` and report a load failure (#21) |
+| performance / load (k6) | **no** | they measure speed, not correctness |
 | manual QA | **no** | nothing to execute |
+
+### How to read that table
+
+**"fixtures"** means anyone can re-run it: `npm test` builds throwaway repos where the right
+answer is known by construction, and the suite fails if this tool cannot tell
+`02-blind-direction` from `01-caught-value`.
+
+**"observed on a real commit"** means it worked once, on a repository you cannot see. That is
+weaker, and it is marked weaker on purpose. Until a fixture exists, nothing stops those two
+rows regressing silently — which is how they came to be wrong in the first place.
 
 ## Does it work?
 
