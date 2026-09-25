@@ -46,7 +46,7 @@ Node 18+. No other dependencies.
 
 ```bash
 # Can this repo be measured at all?
-ca probe
+ca doctor
 
 # Judge one commit — a fix, with the test that shipped alongside it
 ca verify <sha>
@@ -61,6 +61,12 @@ ca verify HEAD --against origin/main
 # .github/workflows/control-arm.yml
 name: control-arm
 on: pull_request
+
+# `comment: true` posts with the default GITHUB_TOKEN, which is read-only in most
+# repos. Without this block the run succeeds and the comment silently never appears.
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   verify:
