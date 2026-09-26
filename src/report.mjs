@@ -72,7 +72,7 @@ export function renderVerify(r) {
     }
     const n = v => r.cases.filter(c => c.verdict === v).length;
     if (r.stillOpen) {
-        const m = { repaired: '↻ REPAIRED SINCE', open: '‼ STILL OPEN TODAY', unknown: '⚠ cannot tell' }[r.stillOpen.status];
+        const m = { repaired: '↻ REPAIRED SINCE', 'repaired-elsewhere': '↻ LIKELY REPAIRED (elsewhere — confirm)', open: '‼ STILL OPEN TODAY', unknown: '⚠ cannot tell' }[r.stillOpen.status];
         L.push(`  ${m} — ${r.stillOpen.reason}`);
         L.push('');
     }
@@ -157,6 +157,7 @@ export function renderAudit(results, meta) {
         // alone hands somebody thirteen tickets, eight of which waste their afternoon.
         const open = blind.filter(r => r.stillOpen?.status === 'open');
         const repaired = blind.filter(r => r.stillOpen?.status === 'repaired');
+        const repairedElsewhere = blind.filter(r => r.stillOpen?.status === 'repaired-elsewhere');
         const cannot = blind.filter(r => !r.stillOpen || r.stillOpen.status === 'unknown');
 
         L.push('  STILL OPEN TODAY — the only rows that are work');
@@ -165,6 +166,11 @@ export function renderAudit(results, meta) {
         L.push('');
         if (repaired.length) {
             L.push(`  ↻ REPAIRED SINCE — true of the commit, already fixed in the tree (${repaired.length})`);
+        }
+        if (repairedElsewhere.length) {
+            L.push('');
+            L.push(`  ↻ LIKELY REPAIRED — a later test in ANOTHER file fails on this bug; confirm before closing (${repairedElsewhere.length})`);
+            for (const r of repairedElsewhere) L.push(`      ${r.short}  ${r.subject.slice(0, 78)}`);
             for (const r of repaired.slice(0, 12)) L.push(`      ${r.short}  ${r.subject.slice(0, 80)}`);
             L.push('');
         }

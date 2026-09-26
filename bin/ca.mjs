@@ -216,6 +216,7 @@ async function audit() {
             caught_pct: answerable ? Number(((results.filter(r => r.verdict === CAUGHT).length / answerable) * 100).toFixed(1)) : null,
             still_open: byStatus('open'),
             repaired_since: byStatus('repaired'),
+            likely_repaired_elsewhere: byStatus('repaired-elsewhere'),
             cannot_tell: results.filter(r => r.verdict === BLIND && (!r.stillOpen || r.stillOpen.status === 'unknown'))
                 .map(r => ({ sha: r.sha, short: r.short, subject: r.subject })),
         }, null, 2));

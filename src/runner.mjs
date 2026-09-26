@@ -7,6 +7,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { register, unregister, killGroup, armReaper } from './children.mjs';
 import { parseTap, isFileLevelFailure } from './tap.mjs';
 
 /**
@@ -28,15 +29,30 @@ function childEnv() {
     return env;
 }
 
+/**
+ * Kill the process GROUP, not the child.
+ *
+ * `node --test` spawns a worker per test file, and vitest/jest fork too. Killing only the
+ * process we spawned orphans every one of them: a machine running these audits was found
+ * carrying ten stray `node --test` processes, seven of them TWO DAYS old, each holding a
+ * worktree and file descriptors open. They sat at 0% CPU, which is why nothing noticed.
+ *
+ * `detached: true` makes the child a group leader, so `process.kill(-pid)` reaches the
+ * whole tree. The group is swept on normal close as well, because a test that leaks a
+ * server of its own exits cleanly and leaves it running.
+ */
 function run(cmd, args, { cwd, timeoutMs }) {
     return new Promise((resolve) => {
-        const child = spawn(cmd, args, { cwd, env: childEnv() });
+        const child = spawn(cmd, args, { cwd, env: childEnv(), detached: true });
+        armReaper();
+        register(child.pid);
+        const killTree = () => { unregister(child.pid); killGroup(child.pid); };
         let stdout = '', stderr = '', killed = false;
-        const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, timeoutMs);
+        const timer = setTimeout(() => { killed = true; killTree(); }, timeoutMs);
         child.stdout.on('data', d => { stdout += d; });
         child.stderr.on('data', d => { stderr += d; });
-        child.on('close', (code) => { clearTimeout(timer); resolve({ code, stdout, stderr, killed }); });
-        child.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, stdout, stderr: String(e), killed }); });
+        child.on('close', (code) => { clearTimeout(timer); killTree(); resolve({ code, stdout, stderr, killed }); });
+        child.on('error', (e) => { clearTimeout(timer); killTree(); resolve({ code: -1, stdout, stderr: String(e), killed }); });
     });
 }
 

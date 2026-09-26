@@ -455,7 +455,7 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
 
     // --- ARM C: is this BLIND finding still open? ---------------------------------------
     if (result.verdict === BLIND) {
-        result.stillOpen = await armC({ repo, parentDir, perFile, timeoutMs });
+        result.stillOpen = await armC({ repo, parentDir, fixDir, perFile, timeoutMs, info });
     }
     return result;
 }
@@ -480,7 +480,7 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
  * So: take the CURRENT version of the test file, put it on the parent's broken code, and
  * run it. If it fails now, the gap was repaired and the finding is history, not a ticket.
  */
-async function armC({ repo, parentDir, perFile, timeoutMs }) {
+async function armC({ repo, parentDir, fixDir, perFile, timeoutMs, info = {} }) {
     const files = perFile.filter(f => !f.skip);
     if (files.length === 0) return { status: 'unknown', reason: 'no runnable test file' };
 
@@ -498,5 +498,56 @@ async function armC({ repo, parentDir, perFile, timeoutMs }) {
             return { status: 'repaired', reason: `the CURRENT "${killer.name}" fails on this bug — the gap was closed after this commit`, by: killer.name, file: f.file };
         }
     }
+    // ── the commit's own files said nothing. Look wider. ────────────────────────────────
+    //
+    // Until now arm C re-ran only the test files the COMMIT touched, which makes it blind
+    // to the most ordinary way a gap gets closed: someone writes the missing test in a
+    // NEW file. Measured 2026-09-25 — of nine commits reported "still open", FOUR had been
+    // fixed that same day, each by a test in a different file:
+    //
+    //   4f6b0492  fixed in tests/auctionCtxUserSettings.test.js   arm C re-ran salesTierFromSettings
+    //   3e54540e  fixed in fetchAuditSourceLink.test.ts           arm C re-ran lotSourceUrl
+    //   7de3d66f  fixed in VinDemoForm.test.tsx                   arm C re-ran vin.test.ts
+    //   d76bdb7d  fixed in tests/postVerdictShaGuard.test.js      arm C re-ran agentDaemonAllowlist
+    //
+    // A 44% false "still open" rate, always in the direction of crying wolf — and this is
+    // the one column anybody acts on. So also try the CURRENT tests that name what the
+    // commit changed, capped, because each one costs a run.
+    const already = new Set(files.map(f => f.file));
+    const candidates = [];
+    for (const src of info.modifiedSourceFiles || []) {
+        const base = src.split('/').pop().replace(/\.[^.]+$/, '');
+        if (base.length < 3) continue;
+        const hits = await git(repo, ['grep', '-l', '--', base, 'HEAD']).catch(() => '');
+        for (const line of hits.split('\n')) {
+            const f = line.replace(/^HEAD:/, '').trim();
+            if (!f || already.has(f) || !TEST_RE(f)) continue;
+            already.add(f);
+            candidates.push(f);
+        }
+    }
+    for (const rel of candidates.slice(0, 6)) {
+        let dest;
+        try { dest = await transplant(repo, 'HEAD', rel, parentDir); } catch { continue; }
+        let flavour, pkgDir;
+        try { ({ flavour, pkgDir } = await selectRunner(fixDir, rel)); } catch { continue; }
+        const runner = RUNNERS[flavour] || nodeTest;
+        const r = await runner.execute({ worktreeDir: parentDir, relTestPath: rel, pkgDir, timeoutMs });
+        if (!r.ok) continue;
+        const killer = r.cases.find(c => isDisagreement(c));
+        if (killer) {
+            return {
+                // A DIFFERENT status from the commit's own file on purpose. That file is
+                // topically tied to the fix; this one was found by name-matching, so it
+                // may be failing on the parent for a reason of its own. Reported as worth
+                // checking rather than as settled — overclaiming here HIDES a real gap,
+                // which is worse than the crying-wolf it replaces.
+                status: 'repaired-elsewhere',
+                reason: `a LATER test elsewhere, "${killer.name}" in ${rel}, fails on this bug — likely closed after this commit, worth confirming`,
+                by: killer.name, file: rel,
+            };
+        }
+    }
+
     return { status: 'open', reason: 'even the CURRENT tests are green on this bug — still unguarded today' };
 }
