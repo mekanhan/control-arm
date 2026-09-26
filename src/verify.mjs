@@ -230,6 +230,18 @@ export function commitKind(subject, sourceAddedOnly) {
         return { kind: 'fix', newCode: !!sourceAddedOnly, prefix };
     }
     if (prefix === 'feat' || prefix === 'feature') return { kind: 'feature', newCode: true, prefix };
+    // A `test:` commit is not claiming to have fixed anything, so BLIND — "your fix shipped
+    // a test that could not catch it" — is the wrong sentence to say about one. The common
+    // shape is a BACKFILL: guards written for bugs repaired weeks earlier. Its parent does
+    // not contain those bugs, so the new tests pass there by construction.
+    //
+    // Found by running this tool over its own author's work, 2026-09-26: a commit titled
+    // `test: cover three fixes whose own tests were green on the broken code` came back
+    // BLIND with 32 cases green either way. Every one of them was correct; the question was
+    // wrong. It escapes the existing test-only decline because such a commit often DOES
+    // carry a source change — extracting logic out of a file nothing can execute is usually
+    // what makes the test possible at all.
+    if (prefix === 'test') return { kind: 'test', newCode: !!sourceAddedOnly, prefix };
     if (prefix) return { kind: 'other', newCode: !!sourceAddedOnly, prefix };
     return { kind: 'unknown', newCode: !!sourceAddedOnly, prefix: null };
 }
@@ -332,6 +344,11 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
 
     if (info.testFiles.length === 0) { result.note = 'no test file in the commit'; return result; }
     if (info.sourceFiles.length === 0) { result.note = 'test-only commit — no source change to be blind to'; return result; }
+    if (info.kind === 'test') {
+        result.note = 'a `test:` commit — it is not claiming to fix a bug, so there is no bug in its '
+            + 'parent for these tests to be blind to (they are usually backfilled for older ones)';
+        return result;
+    }
     if (info.sourceFiles.every(f => BUILD_ONLY_RE.test(f))) {
         result.note = 'build-only change (lockfiles / project files) — a build catches this, not a unit test';
         return result;

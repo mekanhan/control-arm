@@ -213,6 +213,27 @@ test('priority still defaults to 2 for an unlabelled ticket', () => {
     assert.equal(priority('needs triage'), 2);
 });`,
     },
+    '15-skipped-test-commit': {
+        expect: 'SKIPPED',
+        why: 'a `test:` commit is not claiming to fix anything — its parent holds no bug for the tests to miss',
+        // Found running this tool over its own author's work: a backfill commit titled
+        // `test: …` came back BLIND with 32 cases green either way, every one of them
+        // correct. It carries a source change (the extraction that made the test possible)
+        // so the existing test-only decline cannot catch it.
+        subject: 'test: backfill a guard for a bug repaired weeks ago',
+        addedFile: { path: 'src/labels.mjs', content: `export const CANON = (s) => String(s).trim().toUpperCase();\n` },
+        testPath: 'tests/labels.test.mjs',
+        test: `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { CANON } from '../src/labels.mjs';
+import { priority } from '../src/priority.mjs';
+test('CANON upper-cases and trims', () => {
+    assert.equal(CANON(' urgent '), 'URGENT');
+});
+test('priority still defaults to 2', () => {
+    assert.equal(priority('needs triage'), 2);
+});`,
+    },
     '10-skipped-comment-only': {
         expect: 'SKIPPED',
         why: 'the source change is a reworded comment — identical behaviour, nothing to be blind to',
@@ -266,7 +287,7 @@ export function buildFixtures() {
             writeFileSync(path.join(dir, spec.addedFile.path), spec.addedFile.content);
         }
         if (spec.test) writeFileSync(path.join(dir, spec.testPath || 'tests/priority.test.mjs'), spec.test + '\n');
-        sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', 'fix: a hyphen made a HIGH-PRIORITY ticket read as normal']);
+        sh(dir, ['add', '-A']); sh(dir, ['commit', '-qm', spec.subject || 'fix: a hyphen made a HIGH-PRIORITY ticket read as normal']);
 
         built[name] = { dir, sha: execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD']).toString().trim(), ...spec };
     }
