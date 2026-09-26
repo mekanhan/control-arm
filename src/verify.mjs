@@ -92,7 +92,31 @@ const CODE_RE = /\.(m?[jt]sx?)$/i;
 // the first run copied PNG screenshots out of docs/ into the worktree — pointless, and
 // `transplant` writes through a string, so a binary would arrive corrupted anyway.
 const LOADABLE_RE = /\.(m?[jt]sx?|json|ya?ml|sql|csv|graphql|snap)$/i;
-const TEST_RE = (f) => CODE_RE.test(f) && (TEST_SUFFIX_RE.test(f) || TEST_DIR_RE.test(f));
+/**
+ * TYPE tests — `.test-d.ts`, `.test-types.ts`, and the tsd/expect-type conventions.
+ *
+ * These assert about the TYPE SYSTEM and are run by a typechecker, not by executing the
+ * file. This tool cannot run one, and — far worse — did not even recognise one as a test.
+ *
+ * FOUND ON A PUBLIC REPOSITORY (remeda, 2026-09-26) and it inverted the answer:
+ *
+ *     fix(startsWith, endsWith): reject disjoint literal prefixes at compile time
+ *       endsWith.test-d.ts      439 +++    <- the actual guard, ignored
+ *       endsWith.test.ts         16 +-     <- judged instead, correctly unchanged
+ *
+ * The fix was type-level, so the runtime tests pass on both arms — as they should. The
+ * tool called that BLIND: an accusation, about a repository whose tests are fine, with the
+ * real guard sitting right there in the commit unread. Across ten such commits it reported
+ * 75% BLIND where the truthful answer is "I cannot judge type-level fixes".
+ *
+ * So a commit whose test changes are type tests is now INCONCLUSIVE, by the same rule that
+ * a skipped case blocks BLIND: a guard we cannot see is not a guard that is absent.
+ */
+const TYPE_TEST_RE = /\.(test-d|test-types|type-test|types\.test)\.(m?tsx?)$|\.d\.test\.tsx?$/i;
+
+export const isTypeTest = (f) => TYPE_TEST_RE.test(f);
+
+const TEST_RE = (f) => CODE_RE.test(f) && (TEST_SUFFIX_RE.test(f) || TEST_DIR_RE.test(f) || TYPE_TEST_RE.test(f));
 
 /**
  * A "fix" whose source change is entirely comments.
@@ -230,9 +254,23 @@ export async function commitInfo(repo, sha, against = null, withDiffStat = false
     const mergeBase = against ? (await git(repo, ['merge-base', against, sha])).trim() : null;
     // With a base, the changed set is the WHOLE branch, not just the tip commit — a PR's
     // test may have arrived in commit 1 and its source change in commit 3.
-    const files = against
+    // `--name-only` lists a RENAMED file under BOTH its old and new path, and a DELETED
+    // file under a path that no longer exists at this commit. Treating the old path as a
+    // test file the commit ships means `git show <sha>:<old path>` throws later — which
+    // took the entire run down with a stack trace instead of reporting anything at all.
+    //
+    // Found on a real commit that renamed profitBarHelp.test.ts to .tsx.
+    const deletedOut = await git(repo,
+        against ? ['diff', '--name-status', '--diff-filter=D', mergeBase + '...' + sha]
+                : ['show', '--name-status', '--diff-filter=D', '--format=', sha]).catch(() => '');
+    const deleted = new Set(deletedOut.trim().split('\n')
+        .map(l => l.split(/\t/).pop())
+        .filter(Boolean));
+
+    const files = (against
         ? (await git(repo, ['diff', '--name-only', `${mergeBase}...${sha}`])).trim().split('\n').filter(Boolean)
-        : (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean);
+        : (await git(repo, ['show', '--name-only', '--format=', sha])).trim().split('\n').filter(Boolean)
+    ).filter(f => !deleted.has(f));
     // Deletions in non-test source: a repair usually changes lines, new code only adds.
     const numstat = !withDiffStat ? '' : against
         ? await git(repo, ['diff', '--numstat', `${mergeBase}...${sha}`])
@@ -361,6 +399,19 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
 
     const perFile = [];
     for (const rel of info.testFiles) {
+        // A TYPE test asserts about the type system and is checked by a typechecker, not by
+        // executing the file. Skipping it silently is what made a type-level fix look BLIND
+        // while its 439-line guard sat unread in the same commit.
+        if (isTypeTest(rel)) {
+            perFile.push({
+                file: rel, runner: 'typecheck', pkgDir: '',
+                skip: 'a TYPE test — asserted against the type system, not by running the file. '
+                    + 'control-arm cannot run one, so this commit cannot be judged: the guard exists '
+                    + 'and is simply not visible to this method.',
+            });
+            continue;
+        }
+
         // Chosen from the FIX worktree: the parent may predate the config file entirely,
         // and the question is which runner the test was written for.
         const { flavour, pkgDir } = await selectRunner(fixDir, rel);

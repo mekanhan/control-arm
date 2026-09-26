@@ -128,3 +128,57 @@ test('a declined commit produces NO pr comment — silence, not an accusation', 
     const real = { short: 'abc12345', verdict: 'CAUGHT', cases: [{ verdict: 'CAUGHT', name: 'x', reason: 'y' }] };
     assert.notEqual(prComment(real), '', 'a real verdict must still render');
 });
+
+
+// ── the options-object form ───────────────────────────────────────────────────
+//
+// FOUND IN THE WILD, and the existing 65 tests all passed while it was broken — which is
+// this tool's own thesis turned on its author. Not one case covered the three-argument
+// signature, so nothing could fail when it regressed.
+
+test('ASSERT-040: `{ skip }` is not the case body', () => {
+    const src = "test('X: gated on a database', { skip: SKIP }, () => {\n"
+              + "    assert.equal(rows[0].engine, 'PROD-ORIGINAL', 'production must not be touched');\n"
+              + "});";
+    const body = extractCase(src, 'X: gated on a database');
+    assert.ok(body, 'the body must be found at all');
+    assert.match(body, /assert\.equal/, 'the CALLBACK is the body, not the options object');
+    assert.doesNotMatch(body, /skip:/, 'the options object must not be mistaken for the body');
+
+    // CONTROL ARM — the shipped implementation, which took the first brace after the
+    // title. It returned `{ skip: SKIP }`, found no assertion in it, and reported five
+    // real tests as "the case body contains no assertion at all".
+    const lit = src.indexOf("'", src.indexOf('test(')) ;
+    const closeQuote = src.indexOf("'", lit + 1);
+    const naiveOpen = src.indexOf('{', closeQuote);
+    const naive = src.slice(naiveOpen + 1, src.indexOf('}', naiveOpen));
+    assert.doesNotMatch(naive, /assert\./, 'the old path must still find no assertion');
+    assert.match(naive, /skip:/, 'because it grabbed the options object');
+});
+
+test('ASSERT-041: every legal signature resolves to the real body', () => {
+    const forms = {
+        'plain':        "test('A: plain', () => { assert.ok(1, 'real'); });",
+        'async plain':  "test('B: async', async () => { assert.ok(1, 'real'); });",
+        'opts skip':    "test('C: opts skip', { skip: true }, () => { assert.ok(1, 'real'); });",
+        'opts timeout': "test('D: opts timeout', { timeout: 5000 }, async () => { assert.ok(1, 'real'); });",
+        'opts nested':  "test('E: opts nested', { skip: cfg({ a: 1 }) }, () => { assert.ok(1, 'real'); });",
+        'function kw':  "test('F: function keyword', function () { assert.ok(1, 'real'); });",
+    };
+    const failures = [];
+    for (const [label, src] of Object.entries(forms)) {
+        const name = src.match(/'([^']+)'/)[1];
+        const body = extractCase(src, name);
+        if (!body || !/assert\./.test(body)) failures.push(`${label}: ${JSON.stringify(body)}`);
+    }
+    assert.deepEqual(failures, [], `signatures that did not resolve:\n  ${failures.join('\n  ')}`);
+});
+
+test('ASSERT-042: a case body that is GENUINELY empty is still reported as empty', () => {
+    // ASSERT-040 must not have turned the empty-body check off. A test with no assertion
+    // is a real finding, and the whole point is telling it apart from one with options.
+    const src = "test('G: truly empty', { skip: false }, () => {\n    const x = 1;\n});";
+    const body = extractCase(src, 'G: truly empty');
+    assert.ok(body);
+    assert.doesNotMatch(body, /assert\./, 'this one really has no assertion');
+});

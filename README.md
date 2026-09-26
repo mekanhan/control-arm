@@ -194,17 +194,40 @@ measurement that cannot tell zero from failure is not a measurement.
 
 ## Which of your tests it looks at
 
-It does not care what *kind* of test it is, only whether the runner can execute the file.
+**Unit and integration tests** — anything that runs in-process, without a deployed
+application. That is the whole scope.
 
-| kind | covered | why |
-|---|---|---|
-| unit tests | yes | the easy case |
-| backend / server logic | yes | same runner, same rewind |
-| database-backed tests | yes | needs a live DB, else they report `SKIPPED` |
-| component tests (React / RN) | yes | via vitest and jest |
-| browser e2e (Playwright) | **no** | no Playwright runner — but it is detected and **declined by name**, so you get "no playwright runner" rather than a confusing failure |
-| performance / load | **no** | they measure speed, not correctness |
-| manual QA | **no** | nothing to execute |
+**Every row carries what proves it.** A row without evidence beside it is an aspiration, and
+that is where this table was wrong before: vitest and jest were listed as covered because the
+code has adapters for them, not because either had ever been run.
+
+| runner | proven by |
+|---|---|
+| `node:test` | fixtures `01`–`12`, built and run by `npm test` on every push |
+| vitest | observed on a real commit, 2026-09-25 — **no fixture yet** (#21) |
+| jest | observed on a real commit, 2026-09-25 — **no fixture yet** (#21) |
+
+A database-backed test is judged like any other, and needs its database present. The README
+used to claim it reports `SKIPPED` without one; that has never actually been observed, so the
+claim is withdrawn until it is (#21).
+
+**"fixtures"** means anyone can re-run it: `npm test` builds throwaway repos where the right
+answer is known by construction, and the suite fails if this tool cannot tell
+`02-blind-direction` from `01-caught-value`. **"observed on a real commit"** means it worked
+once, on a repository you cannot see — weaker, and marked weaker.
+
+### Out of scope, permanently
+
+Browser e2e (Playwright), device e2e (WDIO/Appium) and load tests (k6).
+
+Arm B has to run your test against the **old code**, and for an e2e test the old code is a
+*running application* — built and served at the parent commit, with its database and its
+services. That is minutes per commit at best, and frequently the parent will not boot at all.
+Load tests measure speed rather than correctness, so the question this tool asks does not
+apply to them.
+
+Point it at one of those and it will name the runner and decline, rather than attempting it
+with the wrong one. That is a courtesy, not a roadmap — none of these is planned.
 
 ## Does it work?
 
