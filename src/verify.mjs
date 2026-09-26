@@ -489,7 +489,21 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
     // be an accusation rather than a finding. CAUGHT is left alone — a test that FAILED on
     // the parent has failed on the parent's behaviour, however it got there.
     if (result.verdict === BLIND && (result.transplantedAdded || []).length) {
-        const mods = info.modifiedSourceFiles || [];
+        // A file whose only changed lines are comments is not a behavioural change, so it
+        // does not count as something arm B could be blind to. Found on 022c9997, whose
+        // whole diff is: two ADDED scripts, an ADDED test, two docs — and one pre-existing
+        // file in which every changed line is a comment. The defect there was that NOTHING
+        // RAN the coverage gate, and the fix IS a test. A test cannot fail on the absence
+        // of itself, so BLIND was meaningless; but the added scripts carry real code, so
+        // the whole-diff comment-only check above does not fire either.
+        const mods = [];
+        for (const f of info.modifiedSourceFiles || []) {
+            const args = against
+                ? ['diff', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`]
+                : ['diff', `${sha}^`, sha];
+            const d = await git(repo, [...args, '--', f]).catch(() => '');
+            if (!d || !diffIsCommentOnly(d)) mods.push(f);
+        }
 
         // NO modified source at all is the clearest case, and the first version of this
         // guard got it exactly backwards by defaulting `reaches` to true. If the commit
@@ -500,8 +514,9 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
         // arm B for the test to be blind TO.
         if (mods.length === 0) {
             result.verdict = INCONCLUSIVE;
-            result.note = 'this commit only ADDED source, and arm B needed those files to load — '
-                + 'so arm B holds the whole change and there is no earlier behaviour to be blind to';
+            result.note = 'every behavioural change here is in files this commit ADDED (any edit to '
+                + 'existing source is comment-only), and arm B needed those files to load — so arm B '
+                + 'holds the whole change and there is no earlier behaviour to be blind to';
             return result;
         }
 

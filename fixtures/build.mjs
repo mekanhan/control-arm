@@ -188,6 +188,31 @@ test('CANON upper-cases and trims', () => {
     assert.equal(CANON(' urgent '), 'URGENT');
 });`,
     },
+    '14-inconclusive-added-plus-comment-edit': {
+        expect: 'INCONCLUSIVE',
+        why: 'the only edit to existing source is a comment, so every real change is in the ADDED file',
+        // Caught on 022c9997: two added scripts, an added test, and one pre-existing file
+        // whose changed lines are all comments. The whole-diff comment-only check cannot
+        // fire (the added scripts are real code) and the added-only check cannot fire
+        // (a file WAS modified) — so a commit whose fix IS a test came back BLIND.
+        commentOnly: true,          // leaves src/priority.mjs broken, adds a comment line
+        addedFile: { path: 'src/labels.mjs', content: `export const CANON = (s) => String(s).trim().toUpperCase();\n` },
+        testPath: 'tests/labels.test.mjs',
+        // It must NAME the modified module, or the run exits through the
+        // "test reaches nothing that changed" branch instead and the fixture proves
+        // nothing — which is exactly what the first version of it did. 022c9997's test
+        // names scripts/spec-coverage.js for the same reason: it is the file it is about.
+        test: `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { CANON } from '../src/labels.mjs';
+import { priority } from '../src/priority.mjs';
+test('CANON upper-cases and trims', () => {
+    assert.equal(CANON(' urgent '), 'URGENT');
+});
+test('priority still defaults to 2 for an unlabelled ticket', () => {
+    assert.equal(priority('needs triage'), 2);
+});`,
+    },
     '10-skipped-comment-only': {
         expect: 'SKIPPED',
         why: 'the source change is a reworded comment — identical behaviour, nothing to be blind to',
