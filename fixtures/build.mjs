@@ -172,6 +172,22 @@ test('CANON upper-cases and trims', () => {
     assert.equal(CANON(' urgent '), 'URGENT');
 });`,
     },
+    '13-inconclusive-added-only': {
+        expect: 'INCONCLUSIVE',
+        why: 'the commit only ADDED source, so arm B holds the whole change — nothing left to be blind to',
+        // Caught on the real bbd0db0d, which adds a component and its test and modifies
+        // nothing. The first version of the added-files guard defaulted to "the test
+        // reaches what changed" when NOTHING had changed, and reported a false BLIND.
+        addedOnly: true,
+        addedFile: { path: 'src/labels.mjs', content: `export const CANON = (s) => String(s).trim().toUpperCase();\n` },
+        testPath: 'tests/labels.test.mjs',
+        test: `import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { CANON } from '../src/labels.mjs';
+test('CANON upper-cases and trims', () => {
+    assert.equal(CANON(' urgent '), 'URGENT');
+});`,
+    },
     '10-skipped-comment-only': {
         expect: 'SKIPPED',
         why: 'the source change is a reworded comment — identical behaviour, nothing to be blind to',
@@ -210,12 +226,16 @@ export function buildFixtures() {
         // --- fix: source repaired, test added ---
         // A comment-only fixture keeps the BROKEN source and changes only a comment, so the
         // commit is a genuine `fix:` subject with no behavioural diff from its parent.
-        writeFileSync(
-            path.join(dir, 'src/priority.mjs'),
-            spec.commentOnly
-                ? `// Separator handling is what this module is about.\n${BROKEN}`
-                : FIXED + (spec.fixedExtra || ''),
-        );
+        // `addedOnly` leaves the existing source untouched, so the commit's whole diff is
+        // the new file plus its test — no modified source anywhere.
+        if (!spec.addedOnly) {
+            writeFileSync(
+                path.join(dir, 'src/priority.mjs'),
+                spec.commentOnly
+                    ? `// Separator handling is what this module is about.\n${BROKEN}`
+                    : FIXED + (spec.fixedExtra || ''),
+            );
+        }
         if (spec.addedFile) {
             mkdirSync(path.dirname(path.join(dir, spec.addedFile.path)), { recursive: true });
             writeFileSync(path.join(dir, spec.addedFile.path), spec.addedFile.content);
