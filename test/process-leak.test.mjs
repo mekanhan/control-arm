@@ -50,8 +50,12 @@ async function killParentMidRun(guarded) {
     // directory and therefore matched nothing. Both arms passed for the same empty reason.
     const tag = dir.split('/').pop();
     const testFile = `hangs-${tag}.test.mjs`;
+    // A real timer, not a never-resolving promise. A dead promise is not a libuv handle:
+    // on Node 20 `node --test` finishes such a test immediately and the process exits, so
+    // there is nothing to strand and the kill below lands on nothing (ESRCH). Node 24
+    // happens to wait, which is why this passed locally and failed on two CI versions.
     writeFileSync(join(dir, testFile), `import { test } from 'node:test';
-test('hangs forever', async () => { await new Promise(() => {}); });
+test('holds a handle open', async () => { await new Promise((r) => setTimeout(r, 600000)); });
 `);
     const parentJs = join(dir, 'parent.mjs');
     writeFileSync(parentJs, guarded
