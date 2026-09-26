@@ -172,6 +172,40 @@ export function testReachesModified(testSrc, modifiedFiles) {
     return false;
 }
 
+/**
+ * Exports this commit ADDED to files it already had.
+ *
+ * The largest remaining reason arm B cannot answer: the test imports a symbol the commit
+ * added to an EXISTING file, so at the parent the module graph will not link and every case
+ * in the file dies with `does not provide an export named 'X'`. Measured over 300 auctionmate
+ * fix commits — 21 of the 82 unanswerable ones, 26%.
+ *
+ * Those added files are NOT transplanted, and must not be: a modified file carries the
+ * repair, so putting it on the parent would hand arm B the fix. What CAN be done honestly is
+ * say so. "The test imports something this commit introduced, so it could not have existed
+ * at the parent" is a category; `SyntaxError: does not provide an export` is a stack trace.
+ */
+export function exportsAddedToExistingFiles(diffText) {
+    const names = new Set();
+    for (const line of diffText.split('\n')) {
+        if (!line.startsWith('+') || line.startsWith('+++')) continue;
+        const m = line.slice(1).match(/^\s*export\s+(?:async\s+)?(?:function\*?|class|const|let|var)\s+([A-Za-z_$][\w$]*)/);
+        if (m) names.add(m[1]);
+        const re = /^\s*export\s*\{([^}]*)\}/.exec(line.slice(1));
+        if (re) for (const part of re[1].split(',')) {
+            const n = part.trim().split(/\s+as\s+/).pop().trim();
+            if (/^[A-Za-z_$][\w$]*$/.test(n)) names.add(n);
+        }
+    }
+    return names;
+}
+
+/** The symbol an ESM link failure is complaining about, if it names one. */
+export function missingExportName(loadFailure) {
+    const m = /does not provide an export named ['"`]?([A-Za-z_$][\w$]*)/.exec(String(loadFailure || ''));
+    return m ? m[1] : null;
+}
+
 /** True when EVERY changed line in every source file is a comment or blank. */
 export function diffIsCommentOnly(diffText) {
     let sawAChangedLine = false;
@@ -415,6 +449,18 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
     result.transplantedAdded = transplantedAdded;
 
     const perFile = [];
+    // Which symbols this commit introduced into files it already had — used only to
+    // explain an arm B link failure in words instead of a stack trace (see
+    // exportsAddedToExistingFiles).
+    let addedExports = new Set();
+    if ((info.modifiedSourceFiles || []).length) {
+        const dargs = against
+            ? ['diff', `${(await git(repo, ['merge-base', against, sha])).trim()}...${sha}`]
+            : ['diff', `${sha}^`, sha];
+        const d = await git(repo, [...dargs, '--', ...info.modifiedSourceFiles]).catch(() => '');
+        addedExports = exportsAddedToExistingFiles(d);
+    }
+
     for (const rel of info.testFiles) {
         // A TYPE test asserts about the type system and is checked by a typechecker, not by
         // executing the file. Skipping it silently is what made a type-level fix look BLIND
@@ -478,7 +524,21 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
         if (f.skip) { result.cases.push({ file: f.file, name: '(file)', verdict: INCONCLUSIVE, reason: f.skip }); continue; }
         for (const aCase of f.armA.cases) {
             const perRun = f.runs.map(({ b, identity }) => {
-                if (!b.ok) return { verdict: INCONCLUSIVE, reason: `did not run on the parent: ${b.loadFailure}` };
+                if (!b.ok) {
+                    // Name the category when the link failure is about a symbol this very
+                    // commit introduced. The test could not have existed at the parent, which
+                    // is a different statement from "we could not run it".
+                    const missing = missingExportName(b.loadFailure);
+                    if (missing && addedExports.has(missing)) {
+                        return {
+                            verdict: INCONCLUSIVE,
+                            reason: `the test imports \`${missing}\`, which THIS commit added to a file it `
+                                + `modified — the test could not have existed at the parent, so there is nothing `
+                                + `to be blind to`,
+                        };
+                    }
+                    return { verdict: INCONCLUSIVE, reason: `did not run on the parent: ${b.loadFailure}` };
+                }
                 const bCase = b.cases.find(c => c.name === aCase.name) || null;
                 return classify({ armA: aCase, armB: bCase, identity });
             });
