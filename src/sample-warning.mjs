@@ -47,3 +47,23 @@ export function sampleWarning({ requested, matched, eligible, drawn, since, sinc
     lines.push(`  A rate over ${drawn} commit${drawn === 1 ? '' : 's'} is not a rate. Read the counts, not the percentage.`);
     return lines.join('\n');
 }
+
+/**
+ * A seed makes the draw reproducible only over a FIXED pool. `--since '4 months'` is a
+ * MOVING window: run it again tomorrow and the pool has shifted, so the same seed draws a
+ * different sample and the headline moves for no reason anyone can see.
+ *
+ * Measured 2026-09-26: the same command, same seed, hours apart, went from
+ * `890 matched / 653 judgeable` to `888 / 652` — and from 85.7% to 100%, because two old
+ * commits fell out of the window and the shuffle landed elsewhere. I spent twenty minutes
+ * suspecting my own change had broken determinism. It had not; the clock had moved.
+ *
+ * With an absolute date the same command twice gives byte-identical pools and results.
+ */
+export function relativeWindowWarning(since, seedWasExplicit) {
+    if (!seedWasExplicit) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(String(since).trim())) return null;   // absolute: fine
+    return `  --seed makes the draw reproducible only over a fixed pool, and '${since}' is a
+  MOVING window — the same seed will draw a different sample tomorrow.
+  For a number you can compare over time, pass an absolute date: --since '2026-06-01'.`;
+}
