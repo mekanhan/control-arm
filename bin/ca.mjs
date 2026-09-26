@@ -17,7 +17,7 @@ import { renderHtml, issueBody } from '../src/html-report.mjs';
 import { prComment } from '../src/markdown-report.mjs';
 import { analyseCase, extractCase } from '../src/assertions.mjs';
 import { COMMANDS, COMMAND_NAMES } from '../src/cli-spec.mjs';
-import { sampleWarning } from '../src/sample-warning.mjs';
+import { sampleWarning, relativeWindowWarning } from '../src/sample-warning.mjs';
 import { verifyEnvelope, auditEnvelope, doctorEnvelope } from '../src/contract.mjs';
 
 const argv = process.argv.slice(2);
@@ -145,6 +145,9 @@ async function audit() {
     process.stderr.write(`  drawing ${sample.length} at random (seed ${seed})\n`);
 
     // A draw that came up short is the difference between a measurement and a number.
+    const moving = relativeWindowWarning(since, argv.includes('--seed'));
+    if (moving) process.stderr.write(`\n${moving}\n`);
+
     const short = sampleWarning({
         requested: n, matched: candidates.length, eligible: eligible.length,
         drawn: sample.length, since, sinceWasExplicit: argv.includes('--since'),

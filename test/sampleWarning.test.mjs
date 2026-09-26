@@ -4,7 +4,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sampleWarning } from '../src/sample-warning.mjs';
+import { sampleWarning, relativeWindowWarning } from '../src/sample-warning.mjs';
 
 const dayjs = {
     requested: 40, matched: 6, eligible: 5, drawn: 5,
@@ -56,4 +56,26 @@ test('SAMPLE-006: singular/plural reads correctly at one commit', () => {
     const w = sampleWarning({ requested: 40, matched: 1, eligible: 1, drawn: 1, since: '12 months ago' });
     assert.match(w, /over 1 commit is not a rate/);
     assert.doesNotMatch(w, /1 commits/);
+});
+
+
+test('WINDOW-001: a seed with a RELATIVE window warns — the seed cannot make it reproducible', () => {
+    // Measured: the same command, same seed, hours apart, went from 890/653 to 888/652 and
+    // from 85.7% to 100%, because two commits fell out of a moving window. Twenty minutes
+    // were spent suspecting a code change had broken determinism. The clock had moved.
+    const w = relativeWindowWarning('4 months', true);
+    assert.ok(w, 'a relative window with a seed must warn');
+    assert.match(w, /MOVING window/);
+    assert.match(w, /absolute date/);
+});
+
+test('WINDOW-002: an ABSOLUTE date is silent — it really is reproducible', () => {
+    assert.equal(relativeWindowWarning('2026-06-01', true), null);
+    assert.equal(relativeWindowWarning('2026-06-01 12:00', true), null);
+});
+
+test('WINDOW-003: no seed, no warning — nobody claimed reproducibility', () => {
+    // The warning is about a promise the seed makes. Without a seed there is no promise,
+    // and firing anyway would be noise on every default run.
+    assert.equal(relativeWindowWarning('4 months', false), null);
 });
