@@ -490,7 +490,22 @@ export async function verifyCommit({ repo, workDir, sha, against = null, runs = 
     // the parent has failed on the parent's behaviour, however it got there.
     if (result.verdict === BLIND && (result.transplantedAdded || []).length) {
         const mods = info.modifiedSourceFiles || [];
-        let reaches = mods.length === 0;
+
+        // NO modified source at all is the clearest case, and the first version of this
+        // guard got it exactly backwards by defaulting `reaches` to true. If the commit
+        // only ADDED source, then everything it changed is in the files arm B just
+        // received — arm B holds the whole fix, so a green test there says nothing about
+        // any bug. Caught on bbd0db0d, which adds ProfitBarHelp.tsx and its test and
+        // modifies nothing: it was reported BLIND, and there was no old behaviour left in
+        // arm B for the test to be blind TO.
+        if (mods.length === 0) {
+            result.verdict = INCONCLUSIVE;
+            result.note = 'this commit only ADDED source, and arm B needed those files to load — '
+                + 'so arm B holds the whole change and there is no earlier behaviour to be blind to';
+            return result;
+        }
+
+        let reaches = false;
         for (const f of perFile) {
             if (reaches) break;
             try {
