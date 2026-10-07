@@ -21,6 +21,11 @@
  */
 
 import { CAUGHT, BLIND, INCONCLUSIVE, FLAKY, SKIPPED } from './verdict.mjs';
+import { createRequire } from 'node:module';
+
+// Read the real version rather than hardcoding it: a hardcoded '1.1.0' drifted the moment
+// the next release bumped package.json, and the contract advertises a version to consumers.
+const { version } = createRequire(import.meta.url)('../package.json');
 
 export const BLOCKER = 'blocker', WARN = 'warn', INFO = 'info';
 
@@ -35,7 +40,7 @@ const envelope = (findings, skipped, target, extra = {}) => {
     return {
         contract: 1,
         tool: 'control-arm',
-        version: '1.1.0',
+        version,
         ran_at: new Date().toISOString(),
         target,
         findings: findings.sort((a, b) =>
