@@ -37,7 +37,7 @@ export const FLAGS = Object.freeze({
     seed: { takesValue: true, help: 'make the random draw reproducible' },
     out: { takesValue: true, help: 'write the audit to a CSV' },
     html: { takesValue: true, help: 'write an HTML report' },
-    json: { takesValue: false, help: 'findings-contract v1 envelope on stdout — or `--json <path>` to write the audit file' },
+    json: { takesValue: false, help: 'findings-contract v1 envelope on stdout; audit additionally accepts `--json <path>` to write its summary to a file' },
     'fail-on-blind': { takesValue: false, help: 'exit 1 when a commit is BLIND (off by default — BLIND is a warning, not a blocker)' },
     keep: { takesValue: false, help: 'leave the worktrees behind for inspection' },
     'pr-comment': { takesValue: false, help: 'print the PR comment markdown and nothing else' },
