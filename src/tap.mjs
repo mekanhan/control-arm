@@ -71,13 +71,3 @@ export function parseTap(stdout) {
     }
     return cases;
 }
-
-/**
- * A whole-file load failure. node:test reports this as a `not ok` for the FILE path with
- * no individual cases, which must not be mistaken for every case failing by assertion.
- */
-export function isFileLevelFailure(cases, testFile) {
-    if (cases.length !== 1) return false;
-    const only = cases[0];
-    return only.status === 'fail' && (only.name.includes('/') || only.name.endsWith('.mjs') || only.name.endsWith('.js') || only.name === testFile);
-}
