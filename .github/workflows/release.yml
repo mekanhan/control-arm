@@ -1,0 +1,83 @@
+# Stage every version tag for review. A release here means three things:
+#
+#   1. the package is STAGED on npm, not published — direct-publish tokens are being
+#      deprecated (gone January 2027), so a maintainer approves with 2FA,
+#   2. GitHub gets a release with notes,
+#   3. the MAJOR tag moves, so `mekanhan/control-arm@v1` in the Marketplace tracks the
+#      latest 1.x.
+#
+# The third one is the part that bit before: `v1` sat on the 1.0.0-era "marketplace
+# branding" commit while `main` moved on, so the Marketplace served stale code and nobody
+# noticed — a pinned major tag is only useful if it actually moves with every release.
+#
+# Trigger it by pushing a tag whose name matches package.json's version:
+#
+#     git tag v1.2.0 && git push origin v1.2.0
+#
+# Then approve the staged package (requires 2FA):
+#
+#     npm stage list              # find the stage id
+#     npm stage approve <stage-id>
+#
+# Requires one repo secret: NPM_TOKEN (a granular token with "Read and write (stage only)"
+# permission, scoped to the `control-arm` package).
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # needed to move the major tag and cut the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # `npm stage publish` needs npm >= 11.15.0 (and Node >= 22.14.0). The npm bundled
+      # with node 22 is older, so install a capable one.
+      - name: Pin npm to a staged-publishing-capable version
+        run: npm install -g npm@11.15.0
+
+      # A tag that disagrees with package.json would publish the right tag name onto the
+      # wrong code. Fail before anything leaves this box.
+      - name: Verify the tag matches package.json
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          [ "v$VERSION" = "$GITHUB_REF_NAME" ] || {
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+            exit 1
+          }
+
+      - name: Test before publishing
+        run: node --test --test-concurrency=1 test/*.test.mjs
+
+      # STAGE, don't publish. This uploads the tarball for review; it is NOT live on the
+      # registry until a maintainer approves with 2FA.
+      - name: Stage the package
+        run: |
+          npm stage publish
+          echo "::notice::Package staged for review — approve with: npm stage list && npm stage approve <stage-id> (2FA required)"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # `${GITHUB_REF_NAME%%.*}` turns v1.2.0 into v1. Move it onto this tag's commit.
+      - name: Move the major tag
+        run: |
+          MAJOR="${GITHUB_REF_NAME%%.*}"
+          git tag -f "$MAJOR" "$GITHUB_SHA"
+          git push -f origin "$MAJOR"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
