@@ -1,6 +1,6 @@
 {
   "name": "control-arm",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Does a test actually fail on the code it was written to catch?",
   "type": "module",
   "bin": {
@@ -10,11 +10,12 @@
     "bin",
     "src",
     "README.md",
+    "CHANGELOG.md",
     "DESIGN.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20.6.0"
   },
   "keywords": [
     "testing",

@@ -323,7 +323,6 @@ export async function commitInfo(repo, sha, against = null, withDiffStat = false
         : await git(repo, ['show', '--numstat', '--format=', sha]);
     let srcDeletions = 0;
     for (const line of numstat.trim().split('\n')) {
-        const [, del, file] = line.split(/\t/).length === 3 ? ['', ...line.split(/\t/).slice(1)] : [];
         const parts = line.split(/\t/);
         if (parts.length !== 3) continue;
         const [, d, f] = parts;

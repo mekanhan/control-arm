@@ -57,8 +57,6 @@ export function classifyMessages(msgs) {
     return { errorName: 'Unrecognised', code: null, message: text.split('\n')[0].slice(0, 200) };
 }
 
-function run(cmd, args, { cwd, timeoutMs, env }) {
-    return new Promise((resolve) => {
 /**
  * Kill the process GROUP, not the child.
  *
@@ -71,6 +69,8 @@ function run(cmd, args, { cwd, timeoutMs, env }) {
  * whole tree. The group is swept on normal close as well, because a test that leaks a
  * server of its own exits cleanly and leaves it running.
  */
+function run(cmd, args, { cwd, timeoutMs, env }) {
+    return new Promise((resolve) => {
         const child = spawn(cmd, args, { cwd, env, shell: false, detached: true });
         armReaper();
         register(child.pid);
@@ -89,6 +89,32 @@ function childEnv() {
     for (const k of Object.keys(env)) if (k.startsWith('NODE_TEST')) delete env[k];
     delete env.NODE_OPTIONS;
     return env;
+}
+
+/**
+ * Parse the jest-shaped JSON report into normalised cases. Pure, so it can be tested
+ * against captured real runner output without installing either runner — the gap the
+ * two-arm path cannot cover is at least closed for the parsing, which is the part most
+ * likely to be wrong.
+ */
+export function parseReport(report) {
+    const cases = [];
+    for (const file of report.testResults || []) {
+        // A file that failed to compile has no assertionResults, only a message.
+        if ((file.assertionResults || []).length === 0 && file.message) {
+            return { ok: false, loadFailure: String(file.message).split('\n')[0].slice(0, 220), cases: [] };
+        }
+        for (const a of file.assertionResults || []) {
+            const status = a.status === 'passed' ? 'pass' : a.status === 'failed' ? 'fail' : 'skip';
+            cases.push({
+                name: a.fullName || a.title,
+                status,
+                ...(status === 'fail' ? classifyMessages(a.failureMessages) : { errorName: null, code: null, message: null }),
+            });
+        }
+    }
+    if (cases.length === 0) return { ok: false, loadFailure: 'no cases reported', cases: [] };
+    return { ok: true, cases };
 }
 
 /**
@@ -118,23 +144,7 @@ export function jsonRunner(flavour) {
             }
             await rm(outFile, { force: true });
 
-            const cases = [];
-            for (const file of report.testResults || []) {
-                // A file that failed to compile has no assertionResults, only a message.
-                if ((file.assertionResults || []).length === 0 && file.message) {
-                    return { ok: false, loadFailure: String(file.message).split('\n')[0].slice(0, 220), cases: [], raw: r };
-                }
-                for (const a of file.assertionResults || []) {
-                    const status = a.status === 'passed' ? 'pass' : a.status === 'failed' ? 'fail' : 'skip';
-                    cases.push({
-                        name: a.fullName || a.title,
-                        status,
-                        ...(status === 'fail' ? classifyMessages(a.failureMessages) : { errorName: null, code: null, message: null }),
-                    });
-                }
-            }
-            if (cases.length === 0) return { ok: false, loadFailure: 'no cases reported', cases: [], raw: r };
-            return { ok: true, cases, raw: r };
+            return { ...parseReport(report), raw: r };
         },
     };
 }

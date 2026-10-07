@@ -16,7 +16,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyMessages } from '../src/runner-json.mjs';
+import { classifyMessages, parseReport } from '../src/runner-json.mjs';
 
 const isDisagreement = m => classifyMessages(m).code === 'ERR_ASSERTION';
 const isCannotRun = m => classifyMessages(m).code === 'ERR_TEST_FAILURE';
@@ -67,3 +67,40 @@ test('CONTROL ARM: a naive "any failure is a disagreement" classifier gets these
     assert.equal(naive(weird), 'ERR_ASSERTION');
     assert.equal(classifyMessages(weird).code, null);
 });
+
+// --- parseReport: mapping a real runner JSON onto normalised cases ---
+// The two-arm path for vitest/jest has no end-to-end fixture (it would `npm install` a
+// runner per repo), but the report PARSING — the part that can silently mislabel a
+// verdict — is pure and pinned here against captured shapes.
+
+test('parseReport: pass / fail / skip map to normalised cases', () => {
+    const report = {
+        testResults: [{
+            assertionResults: [
+                { fullName: 'maps HIGH-PRIORITY to 1', status: 'passed', failureMessages: [] },
+                { fullName: 'maps LOW to 3', status: 'failed', failureMessages: ['AssertionError: expected 2 to deeply equal 3'] },
+                { title: 'a skipped case', status: 'pending', failureMessages: [] },
+            ],
+        }],
+    };
+    const r = parseReport(report);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.cases.map(c => c.status), ['pass', 'fail', 'skip']);
+    assert.equal(r.cases[1].code, 'ERR_ASSERTION');   // a disagreement, not a load error
+    assert.equal(r.cases[2].name, 'a skipped case');  // title is the fullName fallback
+});
+
+test('parseReport: a file that failed to compile is a load failure, not zero cases', () => {
+    const report = { testResults: [{ message: '  ● Test suite failed to run\n\n    SyntaxError: does not provide an export named SEP', assertionResults: [] }] };
+    const r = parseReport(report);
+    assert.equal(r.ok, false);
+    assert.match(r.loadFailure, /Test suite failed to run/);
+    assert.deepEqual(r.cases, []);
+});
+
+test('parseReport: an empty report is a load failure — never BLIND-by-absence', () => {
+    assert.equal(parseReport({ testResults: [] }).ok, false);
+    assert.equal(parseReport({}).ok, false);
+    assert.equal(parseReport({ testResults: [{ assertionResults: [] }] }).ok, false);
+});
+

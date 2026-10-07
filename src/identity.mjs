@@ -53,12 +53,21 @@ export async function proveIdentity({ worktreeRoot, repoRoot, testFilePath, time
     if (specs.length === 0) return { proven: true, resolved: {}, note: 'no external imports' };
 
     const probe = `
-        const out = {};
-        for (const s of ${JSON.stringify(specs)}) {
-            try { out[s] = await import.meta.resolve(s); }
-            catch (e) { out[s] = 'UNRESOLVED:' + e.code; }
+        // import.meta.resolve (sync, single-arg) landed in Node 20.6.0. On an older runtime
+        // it is undefined, and calling it used to be caught per-specifier as
+        // 'UNRESOLVED:undefined' — which the gate below reads as "genuinely missing", so every
+        // verdict would have been "proven" without resolving anything. Fail loudly instead: a
+        // withheld verdict is the safe answer; a silent no-op proof is how a false BLIND ships.
+        if (typeof import.meta.resolve !== 'function') {
+            console.log(JSON.stringify({ __no_resolve__: true }));
+        } else {
+            const out = {};
+            for (const s of ${JSON.stringify(specs)}) {
+                try { out[s] = await import.meta.resolve(s); }
+                catch (e) { out[s] = 'UNRESOLVED:' + e.code; }
+            }
+            console.log(JSON.stringify(out));
         }
-        console.log(JSON.stringify(out));
     `;
     let stdout;
     try {
@@ -72,6 +81,10 @@ export async function proveIdentity({ worktreeRoot, repoRoot, testFilePath, time
     let resolved;
     try { resolved = JSON.parse(stdout.trim().split('\n').pop()); }
     catch { return { proven: false, reason: 'resolution probe produced no JSON' }; }
+
+    if (resolved?.__no_resolve__) {
+        return { proven: false, reason: 'this runtime cannot resolve import specifiers (import.meta.resolve needs Node 20.6+) — verdict withheld rather than trusted' };
+    }
 
     const rootUrl = new URL('file://' + path.resolve(worktreeRoot) + '/').href;
     // Third-party packages are DELIBERATELY shared with the target repo's node_modules —

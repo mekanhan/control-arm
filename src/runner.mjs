@@ -8,7 +8,7 @@
 
 import { spawn } from 'node:child_process';
 import { register, unregister, killGroup, armReaper } from './children.mjs';
-import { parseTap, isFileLevelFailure } from './tap.mjs';
+import { parseTap } from './tap.mjs';
 
 /**
  * The child's environment.
@@ -58,7 +58,6 @@ function run(cmd, args, { cwd, timeoutMs }) {
 
 export const nodeTest = {
     name: 'node:test',
-    matches: (repoRoot, pkg) => !pkg?.scripts?.test?.includes('vitest') || true,
     async execute({ worktreeDir, relTestPath, timeoutMs = 120_000 }) {
         const r = await run(process.execPath, ['--test', '--test-reporter=tap', relTestPath],
             { cwd: worktreeDir, timeoutMs });
@@ -95,5 +94,3 @@ export const nodeTest = {
         return { ok: true, cases: real, raw: r };
     },
 };
-
-export const RUNNERS = [nodeTest];

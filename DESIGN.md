@@ -147,6 +147,14 @@ visible from the two arms alone; all of it needs a third look at HEAD.
 That is also why the corpus filter drops `fix(test):` by default, and why
 `--include-test-fixes` exists for anyone who wants them back.
 
+**Measuring precision properly.** "5 for 5, too small to quote" is a count, not a rate.
+To turn it into a rate — precision, and recall when the whole sample is labelled — label
+each judged commit `gap`/`not-gap` and run `scripts/precision.mjs`. It reads `ca audit
+--out` plus the labels, and prints the confusion matrix for both the raw `BLIND` signal and
+the post-arm-C "still open" signal. Until that labelled corpus exists, the defensible claim
+is the one the README already makes: the raw signal is over-sensitive, the filters remove
+the eight known false positives, and the residual precision is unmeasured.
+
 ## Every bug found in this tool so far
 
 None were found by its own test suite. All were found by pointing it at real work.

@@ -40,7 +40,7 @@ because it runs the new test against the old code.
 npm i -g control-arm     # or run it from a clone: node bin/ca.mjs
 ```
 
-Node 18+. No other dependencies.
+Node 20.6+. No other dependencies.
 
 ## Use it
 
